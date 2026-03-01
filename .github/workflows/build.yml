@@ -15,6 +15,34 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
+      - name: Setup Environment Variables
+        run: |
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          echo "SHORT_SHA=$SHORT_SHA" >> $GITHUB_ENV
+
+      - name: Notify Build Start
+        if: ${{ env.BOT_TOKEN != '' }}
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+        run: |
+          COMMIT_MSG=$(git log -1 --pretty=format:"%s" | sed 's/[<>&"]/\\&/g')
+          COMMIT_URL="${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}"
+          WORKFLOW_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          MESSAGE="<b>Rin Debug Build Started 🚀</b>
+          Branch: $GITHUB_REF_NAME
+
+          <blockquote><code>$COMMIT_MSG</code></blockquote>
+
+          <a href=\"$COMMIT_URL\">Commit</a> | <a href=\"$WORKFLOW_URL\">Workflow</a>"
+
+          curl -s -X POST "https://botapi.arasea.dpdns.org/bot$BOT_TOKEN/sendMessage" \
+              -d chat_id="$CHAT_ID" \
+              -d parse_mode="HTML" \
+              -d disable_web_page_preview="true" \
+              --data-urlencode "text=$MESSAGE"
+
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
@@ -38,16 +66,23 @@ jobs:
           ndk-version: r26b
           add-to-path: true
 
-      - name: Build APK via Script
+      - name: Build Native libraries
         run: |
-          chmod +x build_android.sh
-          ./build_android.sh
+          cargo ndk -t aarch64-linux-android -o android/app/src/main/jniLibs build -p rin --release --features android
+          cargo ndk -t aarch64-linux-android -o android/app/src/main/jniLibs build -p rpkg --release --features android
+          cargo ndk -t aarch64-linux-android build -p rpkg --release --bin rpkg
+          mkdir -p android/app/src/main/jniLibs/arm64-v8a
+          cp target/aarch64-linux-android/release/rpkg android/app/src/main/jniLibs/arm64-v8a/librpkg_cli.so
+
+      - name: Build Debug APK
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug
 
       - name: Rename APK
         run: |
-          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
-          echo "SHORT_SHA=$SHORT_SHA" >> $GITHUB_ENV
-          mv android/app/build/outputs/apk/debug/app-debug.apk android/app/build/outputs/apk/debug/Rin-debug-${SHORT_SHA}.apk
+          mv android/app/build/outputs/apk/debug/app-debug.apk android/app/build/outputs/apk/debug/Rin-debug-${{ env.SHORT_SHA }}.apk
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4

@@ -18,6 +18,46 @@ jobs:
       - name: Checkout Rin Repository
         uses: actions/checkout@v4
 
+      - name: Setup Environment Variables
+        run: |
+          VERSION=$(grep -E '^version = "[^"]+"' Cargo.toml | head -n 1 | cut -d '"' -f 2)
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          echo "SHORT_SHA=$SHORT_SHA" >> $GITHUB_ENV
+
+      - name: Notify Build Start
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+        run: |
+          if [ -z "$BOT_TOKEN" ]; then exit 0; fi
+          COMMIT_MSG=$(git log -1 --pretty=format:"%s" | sed 's/[<>&"]/\\&/g')
+
+          RELEASE_TAG="${{ github.ref_name }}"
+          if [ "$RELEASE_TAG" = "main" ]; then
+            BUILD_LABEL="Manual Release Build"
+            RELEASE_TAG="v${{ env.VERSION }}-${{ env.SHORT_SHA }}"
+          else
+            BUILD_LABEL="Auto Release Build"
+          fi
+
+          COMMIT_URL="${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}"
+          WORKFLOW_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          MESSAGE="<b>Rin $BUILD_LABEL Started 🚀</b>
+          Version: $RELEASE_TAG
+          Branch: $GITHUB_REF_NAME
+
+          <blockquote><code>$COMMIT_MSG</code></blockquote>
+
+          <a href=\"$COMMIT_URL\">Commit</a> | <a href=\"$WORKFLOW_URL\">Workflow</a>"
+
+          curl -s -X POST "https://botapi.arasea.dpdns.org/bot$BOT_TOKEN/sendMessage" \
+              -d chat_id="$CHAT_ID" \
+              -d parse_mode="HTML" \
+              -d disable_web_page_preview="true" \
+              --data-urlencode "text=$MESSAGE"
+
       - name: Checkout Keystore Repository
         uses: actions/checkout@v4
         with:
@@ -47,13 +87,6 @@ jobs:
         with:
           ndk-version: r26b
           add-to-path: true
-
-      - name: Extract Version from Cargo.toml
-        id: extract_version
-        run: |
-          VERSION=$(grep -E '^version = "[^"]+"' Cargo.toml | head -n 1 | cut -d '"' -f 2)
-          echo "VERSION=$VERSION" >> $GITHUB_ENV
-          echo "Version found: $VERSION"
 
       - name: Auto Create Tag
         if: github.event_name == 'workflow_dispatch'
@@ -91,9 +124,7 @@ jobs:
 
       - name: Rename Artifact
         run: |
-          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
-          echo "SHORT_SHA=$SHORT_SHA" >> $GITHUB_ENV
-          mv android/app/build/outputs/apk/release/app-release.apk android/app/build/outputs/apk/release/Rin-v${{ env.VERSION }}-release-${SHORT_SHA}.apk
+          mv android/app/build/outputs/apk/release/app-release.apk android/app/build/outputs/apk/release/Rin-v${{ env.VERSION }}-release-${{ env.SHORT_SHA }}.apk
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
@@ -110,11 +141,12 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Notify Telegram on Success
-        if: ${{ success() && env.BOT_TOKEN != '' }}
+        if: ${{ success() }}
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
         run: |
+          if [ -z "$BOT_TOKEN" ]; then exit 0; fi
           APK_PATH="android/app/build/outputs/apk/release/Rin-v${{ env.VERSION }}-release-${{ env.SHORT_SHA }}.apk"
 
           # Get commit message and escape special characters
@@ -147,7 +179,7 @@ jobs:
               --form-string "caption=$CAPTION"
 
       - name: Notify Telegram on Failure
-        if: ${{ failure() && env.BOT_TOKEN != '' }}
+        if: ${{ failure() }}
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
