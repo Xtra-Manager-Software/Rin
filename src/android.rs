@@ -1,8 +1,8 @@
 #[cfg(feature = "android")]
-use crate::{Pty, TerminalEngine, renderer::AndroidRenderer};
-use jni::JNIEnv;
+use crate::{renderer::AndroidRenderer, Pty, TerminalEngine};
 use jni::objects::{JByteArray, JClass, JString};
 use jni::sys::{jint, jlong};
+use jni::EnvUnowned;
 use std::collections::HashMap;
 use std::fmt::Write;
 use std::sync::atomic::{AtomicI64, Ordering};
@@ -29,7 +29,7 @@ fn get_sessions() -> Arc<RwLock<HashMap<EngineHandle, AndroidSession>>> {
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_com_rin_RinLib_createEngine(
-    mut env: JNIEnv,
+    _env: EnvUnowned,
     _class: JClass,
     width: jint,
     height: jint,
@@ -44,15 +44,12 @@ pub extern "system" fn Java_com_rin_RinLib_createEngine(
             .with_tag("RinNative"),
     );
 
-    let home_dir_str: String = env
-        .get_string(&home_dir)
-        .map(|s| s.into())
-        .unwrap_or_default();
-
-    let username_str: String = env
-        .get_string(&username)
-        .map(|s| s.into())
-        .unwrap_or_else(|_| "user".to_string());
+    let home_dir_str: String = home_dir.to_string();
+    let username_str: String = if username.to_string().is_empty() {
+        "user".to_string()
+    } else {
+        username.to_string()
+    };
 
     log::info!(
         "Creating Engine: {}x{}, HOME={}, USER={}",
@@ -159,7 +156,7 @@ pub extern "system" fn Java_com_rin_RinLib_createEngine(
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_com_rin_RinLib_destroyEngine(
-    _env: JNIEnv,
+    _env: EnvUnowned,
     _class: JClass,
     handle: jlong,
 ) {
@@ -170,36 +167,34 @@ pub extern "system" fn Java_com_rin_RinLib_destroyEngine(
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_com_rin_RinLib_write(
-    env: JNIEnv,
+    mut env: EnvUnowned,
     _class: JClass,
     handle: jlong,
     data: JByteArray,
 ) -> jint {
-    match env.convert_byte_array(&data) {
-        Ok(bytes) => {
-            let sessions_arc = get_sessions();
-            let sessions = sessions_arc.read().unwrap();
-            if let Some(session) = sessions.get(&handle) {
-                // Write to PTY, not Engine
-                let mut pty = session.pty.lock().unwrap();
-                match pty.write(&bytes) {
-                    Ok(_) => 0,
-                    Err(e) => {
-                        log::error!("Failed to write to PTY: {}", e);
-                        -1
-                    }
-                }
-            } else {
-                -2 // Handle not found
+    let outcome = env.with_env(|env| env.convert_byte_array(&data));
+    let bytes: Vec<u8> = outcome.resolve::<jni::errors::ThrowRuntimeExAndDefault>();
+    let bytes: &[u8] = &bytes;
+    let sessions_arc = get_sessions();
+    let sessions = sessions_arc.read().unwrap();
+    if let Some(session) = sessions.get(&handle) {
+        // Write to PTY, not Engine
+        let mut pty = session.pty.lock().unwrap();
+        match pty.write(&bytes) {
+            Ok(_) => 0,
+            Err(e) => {
+                log::error!("Failed to write to PTY: {}", e);
+                -1
             }
         }
-        Err(_) => -1, // Convert failed
+    } else {
+        -2 // Handle not found
     }
 }
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_com_rin_RinLib_render(
-    _env: JNIEnv,
+    _env: EnvUnowned,
     _class: JClass,
     handle: jlong,
 ) -> jint {
@@ -218,7 +213,7 @@ pub extern "system" fn Java_com_rin_RinLib_render(
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_com_rin_RinLib_resize(
-    _env: JNIEnv,
+    _env: EnvUnowned,
     _class: JClass,
     handle: jlong,
     width: jint,
@@ -241,7 +236,7 @@ pub extern "system" fn Java_com_rin_RinLib_resize(
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_com_rin_RinLib_getLine<'local>(
-    env: JNIEnv<'local>,
+    mut env: EnvUnowned<'local>,
     _class: JClass<'local>,
     handle: jlong,
     y: jint,
@@ -255,16 +250,17 @@ pub extern "system" fn Java_com_rin_RinLib_getLine<'local>(
         if let Some(row) = grid.row(y as usize) {
             let line: String = row.iter().map(|c| c.character).collect();
             return env
-                .new_string(line)
-                .unwrap_or_else(|_| env.new_string("").unwrap());
+                .with_env(|env| env.new_string(line))
+                .resolve::<jni::errors::ThrowRuntimeExAndDefault>();
         }
     }
-    env.new_string("").unwrap()
+    env.with_env(|env| env.new_string(""))
+        .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
 }
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_com_rin_RinLib_getCursorX(
-    _env: JNIEnv,
+    _env: EnvUnowned,
     _class: JClass,
     handle: jlong,
 ) -> jint {
@@ -280,7 +276,7 @@ pub extern "system" fn Java_com_rin_RinLib_getCursorX(
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_com_rin_RinLib_getCursorY(
-    _env: JNIEnv,
+    _env: EnvUnowned,
     _class: JClass,
     handle: jlong,
 ) -> jint {
@@ -296,7 +292,7 @@ pub extern "system" fn Java_com_rin_RinLib_getCursorY(
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_com_rin_RinLib_getCellData<'local>(
-    env: JNIEnv<'local>,
+    mut env: EnvUnowned<'local>,
     _class: JClass<'local>,
     handle: jlong,
     y: jint,
@@ -348,15 +344,16 @@ pub extern "system" fn Java_com_rin_RinLib_getCellData<'local>(
                 result.push('\n');
             }
             return env
-                .new_string(result)
-                .unwrap_or_else(|_| env.new_string("").unwrap());
+                .with_env(|env| env.new_string(result))
+                .resolve::<jni::errors::ThrowRuntimeExAndDefault>();
         }
     }
-    env.new_string("").unwrap()
+    env.with_env(|env| env.new_string(""))
+        .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
 }
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_com_rin_RinLib_hasDirtyRows(
-    _env: JNIEnv,
+    _env: EnvUnowned,
     _class: JClass,
     handle: jlong,
 ) -> bool {
@@ -371,7 +368,11 @@ pub extern "system" fn Java_com_rin_RinLib_hasDirtyRows(
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_rin_RinLib_clearDirty(_env: JNIEnv, _class: JClass, handle: jlong) {
+pub extern "system" fn Java_com_rin_RinLib_clearDirty(
+    _env: EnvUnowned,
+    _class: JClass,
+    handle: jlong,
+) {
     let sessions_arc = get_sessions();
     let sessions = sessions_arc.read().unwrap();
     if let Some(session) = sessions.get(&handle) {
