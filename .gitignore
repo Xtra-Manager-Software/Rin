@@ -24,3 +24,7 @@ android/app/build/
 android/.gradle/
 android/app/src/main/jniLibs/
 
+# Keystores and secrets
+*.keystore
+*.jks
+keystore-b64.txt
