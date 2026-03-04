@@ -9,8 +9,13 @@ use jni::EnvUnowned;
 
 #[cfg(feature = "android")]
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_rin_rpkg_RpkgLib_execute<'local>(mut env: EnvUnowned<'local>, _class: JClass<'local>, prefix: JString<'local>, op: JString<'local>, args: JString<'local>,) -> jstring {
-    
+pub extern "system" fn Java_com_rin_rpkg_RpkgLib_execute<'local>(
+    mut env: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    prefix: JString<'local>,
+    op: JString<'local>,
+    args: JString<'local>,
+) -> jstring {
     let prefix_str = prefix.to_string();
     let op_str = op.to_string();
     let args_str = args.to_string();
@@ -29,11 +34,11 @@ pub extern "system" fn Java_com_rin_rpkg_RpkgLib_execute<'local>(mut env: EnvUno
                 Ok(_) => "Sync completed successfully.".to_string(),
                 Err(e) => format!("Failed to sync: {}", e),
             },
-            "install" => match pm.install(&args_str, false) {
+            "install" => match pm.install(&[args_str.clone()], false) {
                 Ok(_) => format!("Package '{}' installed successfully.", args_str),
                 Err(e) => format!("Failed to install '{}': {}", args_str, e),
             },
-            "remove" => match pm.remove(&args_str) {
+            "remove" => match pm.remove(&[args_str.clone()]) {
                 Ok(_) => format!("Package '{}' removed successfully.", args_str),
                 Err(e) => format!("Failed to remove '{}': {}", args_str, e),
             },
