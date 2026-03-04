@@ -20,7 +20,11 @@ fun RinTheme(
             val context = LocalContext.current
             if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
         }
-        else -> FallbackDarkScheme // Fallback for older versions (could add Light fallback if needed)
+        else -> if (darkTheme) darkColorScheme(
+            primary = androidx.compose.ui.graphics.Color(0xFFBB86FC),
+            background = androidx.compose.ui.graphics.Color(0xFF1E1E1E),
+            surface = androidx.compose.ui.graphics.Color(0xFF252526)
+        ) else FallbackDarkScheme
     }
 
     MaterialTheme(

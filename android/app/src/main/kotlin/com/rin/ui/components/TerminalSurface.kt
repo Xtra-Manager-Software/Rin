@@ -39,21 +39,35 @@ fun TerminalSurface(
     var ctrlState by remember { mutableStateOf(ctrlPressed) }
     var cursorVisible by remember { mutableStateOf(true) }
     val colorScheme = rememberTerminalColorScheme()
-    
-    // Update ctrlState when prop changes
+
+    var lastInputTime by remember { mutableStateOf(System.currentTimeMillis()) }
+    var viewRef by remember { mutableStateOf<TerminalCanvasView?>(null) }
+
     DisposableEffect(ctrlPressed) {
         ctrlState = ctrlPressed
         onDispose { }
     }
 
-    // Cursor blinking effect
-    androidx.compose.runtime.LaunchedEffect(Unit) {
+    androidx.compose.runtime.LaunchedEffect(lastInputTime) {
+        cursorVisible = true
+        viewRef?.invalidate()
+        kotlinx.coroutines.delay(500)
         while (true) {
-            cursorVisible = true
-            kotlinx.coroutines.delay(500)
-            cursorVisible = false
+            cursorVisible = !cursorVisible
+            viewRef?.invalidate()
             kotlinx.coroutines.delay(500)
         }
+    }
+
+    val wrappedOnInput: (ByteArray) -> Unit = { data ->
+        lastInputTime = System.currentTimeMillis()
+        cursorVisible = true
+        onInput(data)
+    }
+
+    val resetBlink: () -> Unit = {
+        lastInputTime = System.currentTimeMillis()
+        cursorVisible = true
     }
 
     AndroidView(
@@ -61,17 +75,21 @@ fun TerminalSurface(
             TerminalCanvasView(context).apply {
                 this.engineHandle = engineHandle
                 this.fontSize = fontSize
-                this.onInputCallback = onInput
+                this.onInputCallback = wrappedOnInput
+                this.onActivityCallback = resetBlink
                 this.ctrlPressedProvider = { ctrlState }
                 this.cursorVisibleProvider = { cursorVisible }
                 this.colorScheme = colorScheme
+                viewRef = this
             }
         },
         modifier = modifier,
         update = { view ->
+            viewRef = view
             view.engineHandle = engineHandle
             view.fontSize = fontSize
-            view.onInputCallback = onInput
+            view.onInputCallback = wrappedOnInput
+            view.onActivityCallback = resetBlink
             view.ctrlPressedProvider = { ctrlState }
             view.cursorVisibleProvider = { cursorVisible }
             view.colorScheme = colorScheme
@@ -80,7 +98,7 @@ fun TerminalSurface(
     )
 }
 
-private class TerminalCanvasView(context: Context) : View(context) {
+class TerminalCanvasView(context: Context) : View(context) {
     var engineHandle: Long = 0L
     var fontSize: Float = 18f
         set(value) {
@@ -88,6 +106,7 @@ private class TerminalCanvasView(context: Context) : View(context) {
             updatePaint()
         }
     var onInputCallback: (ByteArray) -> Unit = {}
+    var onActivityCallback: () -> Unit = {}
     var ctrlPressedProvider: () -> Boolean = { false }
     var cursorVisibleProvider: () -> Boolean = { true }
     var colorScheme: TerminalColorScheme? = null
@@ -103,7 +122,7 @@ private class TerminalCanvasView(context: Context) : View(context) {
 
     private val cursorPaint = Paint().apply {
         color = Color.WHITE
-        alpha = 150
+        alpha = 255
     }
     private val bgPaint = Paint()
     private val fgPaint = Paint().apply {
@@ -136,7 +155,7 @@ private class TerminalCanvasView(context: Context) : View(context) {
         isFocusable = true
         isFocusableInTouchMode = true
         updatePaint()
-    
+
         postDelayed(object : Runnable {
             override fun run() {
                 if (engineHandle != 0L && RinLib.hasDirtyRows(engineHandle)) {
@@ -173,7 +192,7 @@ private class TerminalCanvasView(context: Context) : View(context) {
     override fun onTouchEvent(event: MotionEvent): Boolean {
         scaleDetector.onTouchEvent(event)
         if (scaleDetector.isInProgress) return true
-        
+
         if (event.action == MotionEvent.ACTION_DOWN) {
             requestFocus()
             val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
@@ -185,14 +204,13 @@ private class TerminalCanvasView(context: Context) : View(context) {
     override fun onCheckIsTextEditor(): Boolean = true
 
     override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection {
-        outAttrs.inputType = InputType.TYPE_NULL // Raw key events preferred
+        outAttrs.inputType = InputType.TYPE_NULL
         outAttrs.imeOptions = EditorInfo.IME_ACTION_NONE or EditorInfo.IME_FLAG_NO_FULLSCREEN
 
         return object : BaseInputConnection(this, true) {
             private var composingText = StringBuilder()
 
             override fun setComposingText(text: CharSequence, newCursorPosition: Int): Boolean {
-                // For predictive keyboards - send each new character immediately
                 val newText = text.toString()
                 if (newText.length > composingText.length) {
                     val newChars = newText.substring(composingText.length)
@@ -209,13 +227,10 @@ private class TerminalCanvasView(context: Context) : View(context) {
             }
 
             override fun commitText(text: CharSequence, newCursorPosition: Int): Boolean {
-                // Clear any composing text first
                 val committed = text.toString()
                 if (composingText.isNotEmpty()) {
-                    // Already sent via setComposingText, just clear
                     composingText.clear()
                 } else {
-                    // Direct commit (no composing)
                     sendToTerminal(committed)
                 }
                 return true
@@ -239,6 +254,7 @@ private class TerminalCanvasView(context: Context) : View(context) {
 
             override fun sendKeyEvent(event: KeyEvent): Boolean {
                 if (event.action == KeyEvent.ACTION_DOWN) {
+                    onActivityCallback()
                     when (event.keyCode) {
                         KeyEvent.KEYCODE_ENTER -> {
                             onInputCallback("\r".toByteArray())
@@ -251,7 +267,6 @@ private class TerminalCanvasView(context: Context) : View(context) {
                             return true
                         }
                     }
-                    // Handle character keys directly
                     val unicodeChar = event.unicodeChar
                     if (unicodeChar != 0) {
                         sendToTerminal(unicodeChar.toChar().toString())
@@ -271,31 +286,48 @@ private class TerminalCanvasView(context: Context) : View(context) {
         }
     }
 
-    // Map RGB to ANSI color index (approximate match)
+    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        onActivityCallback()
+        val data = when (keyCode) {
+            KeyEvent.KEYCODE_DPAD_UP    -> byteArrayOf(0x1B, 0x5B, 0x41)
+            KeyEvent.KEYCODE_DPAD_DOWN  -> byteArrayOf(0x1B, 0x5B, 0x42)
+            KeyEvent.KEYCODE_DPAD_RIGHT -> byteArrayOf(0x1B, 0x5B, 0x43)
+            KeyEvent.KEYCODE_DPAD_LEFT  -> byteArrayOf(0x1B, 0x5B, 0x44)
+            KeyEvent.KEYCODE_TAB        -> "\t".toByteArray()
+            else -> null
+        }
+
+        if (data != null) {
+            onInputCallback(data)
+            invalidate()
+            return true
+        }
+
+        return super.onKeyDown(keyCode, event)
+    }
+
     private fun rgbToAnsiIndex(r: Int, g: Int, b: Int): Int? {
-        // Check for standard ANSI colors as defined in Rust ansi.rs
         return when {
-            r == 0 && g == 0 && b == 0 -> 0         // Black
-            r == 205 && g == 49 && b == 49 -> 1     // Red
-            r == 13 && g == 188 && b == 121 -> 2    // Green
-            r == 229 && g == 229 && b == 16 -> 3    // Yellow
-            r == 36 && g == 114 && b == 200 -> 4    // Blue
-            r == 188 && g == 63 && b == 188 -> 5    // Magenta
-            r == 17 && g == 168 && b == 205 -> 6    // Cyan
-            r == 229 && g == 229 && b == 229 -> 7   // White
-            r == 102 && g == 102 && b == 102 -> 8   // Bright Black
-            r == 241 && g == 76 && b == 76 -> 9     // Bright Red
-            r == 35 && g == 209 && b == 139 -> 10   // Bright Green
-            r == 245 && g == 245 && b == 67 -> 11   // Bright Yellow
-            r == 59 && g == 142 && b == 234 -> 12   // Bright Blue
-            r == 214 && g == 112 && b == 214 -> 13  // Bright Magenta
-            r == 41 && g == 184 && b == 219 -> 14   // Bright Cyan
-            r == 255 && g == 255 && b == 255 -> 15  // Bright White
-            else -> null // True color, keep as-is
+            r == 0 && g == 0 && b == 0 -> 0
+            r == 205 && g == 49 && b == 49 -> 1
+            r == 13 && g == 188 && b == 121 -> 2
+            r == 229 && g == 229 && b == 16 -> 3
+            r == 36 && g == 114 && b == 200 -> 4
+            r == 188 && g == 63 && b == 188 -> 5
+            r == 17 && g == 168 && b == 205 -> 6
+            r == 229 && g == 229 && b == 229 -> 7
+            r == 102 && g == 102 && b == 102 -> 8
+            r == 241 && g == 76 && b == 76 -> 9
+            r == 35 && g == 209 && b == 139 -> 10
+            r == 245 && g == 245 && b == 67 -> 11
+            r == 59 && g == 142 && b == 234 -> 12
+            r == 214 && g == 112 && b == 214 -> 13
+            r == 41 && g == 184 && b == 219 -> 14
+            r == 255 && g == 255 && b == 255 -> 15
+            else -> null
         }
     }
 
-    // Get Monet color for ANSI index
     private fun getMonetColor(index: Int): Int {
         val scheme = colorScheme ?: return Color.WHITE
         return when (index) {
@@ -326,10 +358,8 @@ private class TerminalCanvasView(context: Context) : View(context) {
 
         if (engineHandle == 0L) return
 
-        // Update fgPaint text size (in case font size changed)
         fgPaint.textSize = textPaint.textSize
 
-        // Draw cells with colors
         for (y in 0 until rows) {
             val cellData = RinLib.getCellData(engineHandle, y)
             if (cellData.isEmpty()) continue
@@ -349,7 +379,6 @@ private class TerminalCanvasView(context: Context) : View(context) {
                 val bgParts = parts[2].split(",")
                 val flags = parts[3]
 
-                // Parse RGB colors
                 val fgR = fgParts.getOrNull(0)?.toIntOrNull() ?: 255
                 val fgG = fgParts.getOrNull(1)?.toIntOrNull() ?: 255
                 val fgB = fgParts.getOrNull(2)?.toIntOrNull() ?: 255
@@ -357,7 +386,6 @@ private class TerminalCanvasView(context: Context) : View(context) {
                 val bgG = bgParts.getOrNull(1)?.toIntOrNull() ?: 0
                 val bgB = bgParts.getOrNull(2)?.toIntOrNull() ?: 0
 
-                // Map to Monet colors if standard ANSI, otherwise use true color
                 val fgColor = rgbToAnsiIndex(fgR, fgG, fgB)?.let { getMonetColor(it) }
                     ?: Color.rgb(fgR, fgG, fgB)
                 val bgColor = rgbToAnsiIndex(bgR, bgG, bgB)?.let { getMonetColor(it) }
@@ -365,7 +393,6 @@ private class TerminalCanvasView(context: Context) : View(context) {
 
                 val schemeBg = scheme?.background ?: 0xFF0D0D0D.toInt()
 
-                // Draw background if not default
                 if (bgColor != schemeBg && bgColor != Color.BLACK) {
                     bgPaint.color = bgColor
                     canvas.drawRect(
@@ -377,17 +404,11 @@ private class TerminalCanvasView(context: Context) : View(context) {
                     )
                 }
 
-                // Apply text styles
                 fgPaint.color = fgColor
                 fgPaint.isFakeBoldText = flags.contains('b')
                 fgPaint.textSkewX = if (flags.contains('i')) -0.25f else 0f
-                if (flags.contains('d')) {
-                    fgPaint.alpha = 150
-                } else {
-                    fgPaint.alpha = 255
-                }
+                fgPaint.alpha = if (flags.contains('d')) 150 else 255
 
-                // Draw character
                 if (char.isNotEmpty() && char != " ") {
                     canvas.drawText(
                         char,
@@ -400,27 +421,24 @@ private class TerminalCanvasView(context: Context) : View(context) {
             }
         }
 
-        // Draw cursor with Monet primary color (only if visible)
         if (cursorVisibleProvider()) {
-            cursorPaint.color = scheme?.cursor ?: Color.WHITE
-            cursorPaint.alpha = 255 // Solid opacity for thin bar
-            
             val cx = RinLib.getCursorX(engineHandle)
             val cy = RinLib.getCursorY(engineHandle)
             if (cx < cols && cy < rows) {
-                // Draw blinking bar cursor (thin vertical line)
-                val cursorWidth = charWidth / 5 // Make it thin relative to char width
+                cursorPaint.color = scheme?.cursor ?: Color.WHITE
+                cursorPaint.alpha = 255
+                val cursorHeight = lineHeight * 0.15f
+                val baseY = (cy + 1) * lineHeight
                 canvas.drawRect(
                     cx * charWidth,
-                    cy * lineHeight,
-                    cx * charWidth + cursorWidth,
-                    (cy + 1) * lineHeight,
+                    baseY - cursorHeight,
+                    cx * charWidth + charWidth,
+                    baseY,
                     cursorPaint
                 )
             }
         }
 
-        // Clear dirty flags after rendering
         if (engineHandle != 0L) {
             RinLib.clearDirty(engineHandle)
         }
