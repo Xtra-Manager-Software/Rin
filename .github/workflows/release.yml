@@ -105,22 +105,28 @@ jobs:
           fi
 
       - name: Build Native libraries
+        id: build-native
         run: |
-          cargo ndk -t aarch64-linux-android -o android/app/src/main/jniLibs build -p rin --release --features android
-          cargo ndk -t aarch64-linux-android -o android/app/src/main/jniLibs build -p rpkg --release --features android
-          cargo ndk -t aarch64-linux-android build -p rpkg --release --bin rpkg
-          mkdir -p android/app/src/main/jniLibs/arm64-v8a
-          cp target/aarch64-linux-android/release/rpkg android/app/src/main/jniLibs/arm64-v8a/librpkg_cli.so
+          set -o pipefail
+          {
+            cargo ndk -t aarch64-linux-android -o android/app/src/main/jniLibs build -p rin --release --features android
+            cargo ndk -t aarch64-linux-android -o android/app/src/main/jniLibs build -p rpkg --release --features android
+            cargo ndk -t aarch64-linux-android build -p rpkg --release --bin rpkg
+            mkdir -p android/app/src/main/jniLibs/arm64-v8a
+            cp target/aarch64-linux-android/release/rpkg android/app/src/main/jniLibs/arm64-v8a/librpkg_cli.so
+          } 2>&1 | tee build-native.log
 
       - name: Build Release APK
+        id: build-apk
         run: |
+          set -o pipefail
           cd android
           chmod +x gradlew
           ./gradlew assembleRelease \
             -Pandroid.injected.signing.store.file=${{ github.workspace }}/keystore-repo/rin-release.jks \
             -Pandroid.injected.signing.store.password=${{ secrets.KEYSTORE_PASSWORD }} \
             -Pandroid.injected.signing.key.alias=${{ secrets.KEYALIAS }} \
-            -Pandroid.injected.signing.key.password=${{ secrets.KEY_PASSWORD }}
+            -Pandroid.injected.signing.key.password=${{ secrets.KEY_PASSWORD }} 2>&1 | tee ../build-gradle.log
 
       - name: Rename Artifact
         run: |
@@ -163,7 +169,7 @@ jobs:
           COMMIT_URL="${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}"
           WORKFLOW_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
-          CAPTION="<b>Rin $BUILD_LABEL</b>
+          CAPTION="<b>✅ Rin $BUILD_LABEL Success</b>
           Version: $RELEASE_TAG
           Branch: $GITHUB_REF_NAME
 
@@ -171,12 +177,41 @@ jobs:
 
           <a href=\"$COMMIT_URL\">Commit</a> | <a href=\"$WORKFLOW_URL\">Workflow</a>"
 
-          curl -s -X POST "https://botapi.arasea.dpdns.org/bot$BOT_TOKEN/sendDocument" \
+          # Send APK
+          RESPONSE=$(curl -s -X POST "https://botapi.arasea.dpdns.org/bot$BOT_TOKEN/sendDocument" \
               -F chat_id="$CHAT_ID" \
               -F document=@"$APK_PATH" \
               -F parse_mode="HTML" \
               -F disable_web_page_preview="true" \
-              --form-string "caption=$CAPTION"
+              --form-string "caption=$CAPTION")
+
+          # Extract message_id and pin the message
+          MESSAGE_ID=$(echo "$RESPONSE" | grep -o '"message_id":[0-9]*' | head -1 | cut -d':' -f2)
+          
+          if [ -n "$MESSAGE_ID" ]; then
+            curl -s -X POST "https://botapi.arasea.dpdns.org/bot$BOT_TOKEN/pinChatMessage" \
+                -d chat_id="$CHAT_ID" \
+                -d message_id="$MESSAGE_ID" \
+                -d disable_notification="true"
+          fi
+
+          # Create and send build log
+          echo "=== RELEASE BUILD SUCCESS LOG ===" > build-success.log
+          echo "Build Date: $(date)" >> build-success.log
+          echo "Version: $RELEASE_TAG" >> build-success.log
+          echo "Commit: ${{ github.sha }}" >> build-success.log
+          echo "Branch: $GITHUB_REF_NAME" >> build-success.log
+          echo "" >> build-success.log
+          echo "=== Native Build Log (last 100 lines) ===" >> build-success.log
+          tail -n 100 build-native.log >> build-success.log 2>/dev/null || echo "No native build log" >> build-success.log
+          echo "" >> build-success.log
+          echo "=== Gradle Build Log (last 100 lines) ===" >> build-success.log
+          tail -n 100 build-gradle.log >> build-success.log 2>/dev/null || echo "No gradle build log" >> build-success.log
+
+          curl -s -X POST "https://botapi.arasea.dpdns.org/bot$BOT_TOKEN/sendDocument" \
+              -F chat_id="$CHAT_ID" \
+              -F document=@"build-success.log" \
+              -F caption="📋 Release Build Success Log"
 
       - name: Notify Telegram on Failure
         if: ${{ failure() }}
@@ -197,7 +232,7 @@ jobs:
           COMMIT_URL="${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}"
           WORKFLOW_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
-          MESSAGE="<b>Rin $BUILD_LABEL Failed</b>
+          MESSAGE="<b>❌ Rin $BUILD_LABEL Failed</b>
           Branch: $GITHUB_REF_NAME
 
           <blockquote><code>$COMMIT_MSG</code></blockquote>
@@ -209,3 +244,31 @@ jobs:
               -d parse_mode="HTML" \
               -d disable_web_page_preview="true" \
               --data-urlencode "text=$MESSAGE"
+
+          # Create and send error log
+          echo "=== RELEASE BUILD FAILURE LOG ===" > build-error.log
+          echo "Build Date: $(date)" >> build-error.log
+          echo "Commit: ${{ github.sha }}" >> build-error.log
+          echo "Branch: $GITHUB_REF_NAME" >> build-error.log
+          echo "" >> build-error.log
+          
+          if [ -f build-native.log ]; then
+            echo "=== Native Build Log (last 200 lines) ===" >> build-error.log
+            tail -n 200 build-native.log >> build-error.log
+            echo "" >> build-error.log
+          fi
+          
+          if [ -f build-gradle.log ]; then
+            echo "=== Gradle Build Log (last 200 lines) ===" >> build-error.log
+            tail -n 200 build-gradle.log >> build-error.log
+            echo "" >> build-error.log
+          fi
+
+          # Extract error messages
+          echo "=== ERROR SUMMARY ===" >> build-error.log
+          grep -i "error\|failed\|exception" build-native.log build-gradle.log 2>/dev/null | tail -n 50 >> build-error.log || echo "No specific errors found" >> build-error.log
+
+          curl -s -X POST "https://botapi.arasea.dpdns.org/bot$BOT_TOKEN/sendDocument" \
+              -F chat_id="$CHAT_ID" \
+              -F document=@"build-error.log" \
+              -F caption="📋 Release Build Error Log"
