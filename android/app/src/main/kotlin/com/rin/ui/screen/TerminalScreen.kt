@@ -1,6 +1,7 @@
 package com.rin.ui.screen
 
 import android.app.Activity
+import android.os.FileObserver
 import android.view.View
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -8,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -15,11 +17,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import com.rin.RinLib
+import com.rin.RinPermStorage
+import com.rin.permission.StoragePermissionHelper
 import com.rin.terminal.SessionManager
 import com.rin.ui.components.ExtraKeysBar
 import com.rin.ui.components.HelpDialog
 import com.rin.ui.components.SessionDialog
 import com.rin.ui.components.TerminalSurface
+import java.io.File
 
 @Composable
 fun TerminalScreen(
@@ -37,6 +42,42 @@ fun TerminalScreen(
     val activeSession = sessionManager.activeSession
     val engineHandle = activeSession?.engineHandle ?: 0L
 
+    // FileObserver
+    DisposableEffect(context) {
+        val triggerFile = File(context.filesDir, ".rin_request_perm")
+        val permFile = File(context.filesDir, ".storage_permission")
+        triggerFile.delete()
+
+        val observer = object : FileObserver(
+            context.filesDir.absolutePath,
+            CREATE or MODIFY or MOVED_TO
+        ) {
+            override fun onEvent(event: Int, path: String?) {
+                if (path == ".rin_request_perm" && triggerFile.exists()) {
+                    val activity = context as? Activity ?: return
+
+                    if (RinPermStorage.checkAndUpdatePermissionStatus(activity)) {
+                        permFile.writeText("granted")
+                        triggerFile.delete()
+                        return
+                    }
+
+                    RinPermStorage.requestStoragePermission(activity) { granted ->
+                        if (granted) {
+                            StoragePermissionHelper.setStoragePermissionGranted(context, true)
+                            permFile.writeText("granted")
+                        }
+                    }
+                }
+            }
+        }
+        observer.startWatching()
+
+        onDispose {
+            observer.stopWatching()
+        }
+    }
+
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -53,24 +94,25 @@ fun TerminalScreen(
             onInput = { data ->
                 if (engineHandle != 0L) {
                     val input = String(data, Charsets.UTF_8)
+                    var shouldSendToPty = true
 
                     // Update buffer
                     if (input.contains("\r") || input.contains("\n")) {
-                        // Enter check the command
-                        val command = inputBuffer.trim().lowercase()
-                        
-                        if (command == "help") {
+                        val command = inputBuffer.trim()
+
+                        if (command.lowercase() == "help") {
+                            shouldSendToPty = false
                             showHelpDialog = true
                             inputBuffer = ""
-                            return@TerminalSurface
                         }
-                        
-                        if (command == "exit" || command == "quit") {
+                        else if (command.lowercase() == "exit" || command.lowercase() == "quit") {
+                            shouldSendToPty = false
                             (context as? Activity)?.finishAffinity()
-                            return@TerminalSurface
+                            inputBuffer = ""
                         }
-                        // Reset buffer
-                        inputBuffer = ""
+                        else {
+                            inputBuffer = ""
+                        }
                     } else if (input.contains("\u007F") || input.contains("\b")) {
                         if (inputBuffer.isNotEmpty()) {
                             inputBuffer = inputBuffer.dropLast(1)
@@ -78,7 +120,10 @@ fun TerminalScreen(
                     } else if (input.all { it.isLetterOrDigit() || it.isWhitespace() || it in "!@#$%^&*()_+-=[]{}|;':\",./<>?" }) {
                         inputBuffer += input
                     }
-                    RinLib.write(engineHandle, data)
+                    // Send to PTY 
+                    if (shouldSendToPty) {
+                        RinLib.write(engineHandle, data)
+                    }
                 }
             },
             onViewReady = { view -> terminalView = view }
@@ -95,7 +140,6 @@ fun TerminalScreen(
                 ctrlPressed = active
             },
             onPaste = {
-                // Trigger paste
                 (terminalView as? com.rin.ui.components.TerminalCanvasView)?.let { view ->
                     val clipboardManager = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
                     val clip = clipboardManager.primaryClip
