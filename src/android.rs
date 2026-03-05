@@ -103,6 +103,8 @@ pub extern "system" fn Java_com_rin_RinLib_createEngine(
             "\x1b[0m\r\n",
             " \x1b[90mgithub.com/pavelc4/Rin\x1b[0m\r\n",
             "\r\n",
+            " \x1b[33mType '\x1b[1mhelp\x1b[0m\x1b[33m' for available commands\x1b[0m\r\n",
+            "\r\n",
         );
         let _ = engine_guard.write(banner.as_bytes());
     }
