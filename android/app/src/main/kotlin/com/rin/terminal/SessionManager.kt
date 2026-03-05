@@ -1,11 +1,14 @@
 package com.rin.terminal
 
+import android.content.Context
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import com.rin.RinLib
+import com.rin.permission.StoragePermissionHelper
 
 
 class SessionManager(
+    private val context: Context,
     private val homeDir: String,
     private val username: String
 ) {
@@ -21,10 +24,12 @@ class SessionManager(
 
     fun createSession(): TerminalSession {
         sessionCounter++
+        val hasPermission = if (StoragePermissionHelper.isStoragePermissionGranted(context)) 1 else 0
         val handle = RinLib.createEngine(
             80, 24, 14.0f,
             homeDir,
-            username
+            username,
+            hasPermission
         )
         val session = TerminalSession(
             name = "Session $sessionCounter",
