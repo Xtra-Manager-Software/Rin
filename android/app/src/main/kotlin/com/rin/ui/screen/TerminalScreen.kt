@@ -1,5 +1,6 @@
 package com.rin.ui.screen
 
+import android.app.Activity
 import android.view.View
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -12,6 +13,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import com.rin.RinLib
 import com.rin.terminal.SessionManager
 import com.rin.ui.components.ExtraKeysBar
@@ -27,7 +29,9 @@ fun TerminalScreen(
     var keyRepeating by remember { mutableStateOf(false) }
     var terminalView by remember { mutableStateOf<View?>(null) }
     var showSessionDialog by remember { mutableStateOf(false) }
+    var inputBuffer by remember { mutableStateOf("") }
 
+    val context = LocalContext.current
     val activeSession = sessionManager.activeSession
     val engineHandle = activeSession?.engineHandle ?: 0L
 
@@ -46,6 +50,26 @@ fun TerminalScreen(
                 .weight(1f),
             onInput = { data ->
                 if (engineHandle != 0L) {
+                    val input = String(data, Charsets.UTF_8)
+
+                    // Update buffer
+                    if (input.contains("\r") || input.contains("\n")) {
+                        // Enter check the command
+                        val command = inputBuffer.trim().lowercase()
+                        
+                        if (command == "exit" || command == "quit") {
+                            (context as? Activity)?.finishAffinity()
+                            return@TerminalSurface
+                        }
+                        // Reset buffer
+                        inputBuffer = ""
+                    } else if (input.contains("\u007F") || input.contains("\b")) {
+                        if (inputBuffer.isNotEmpty()) {
+                            inputBuffer = inputBuffer.dropLast(1)
+                        }
+                    } else if (input.all { it.isLetterOrDigit() || it.isWhitespace() || it in "!@#$%^&*()_+-=[]{}|;':\",./<>?" }) {
+                        inputBuffer += input
+                    }
                     RinLib.write(engineHandle, data)
                 }
             },
