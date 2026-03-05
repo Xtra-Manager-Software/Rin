@@ -1,5 +1,7 @@
 package com.rin.ui.components
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
@@ -7,6 +9,7 @@ import android.graphics.Paint
 import android.graphics.Typeface
 import android.text.InputType
 import android.util.TypedValue
+import android.view.ContextMenu
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
@@ -110,7 +113,7 @@ fun TerminalSurface(
     )
 }
 
-class TerminalCanvasView(context: Context) : View(context) {
+class TerminalCanvasView(context: Context) : View(context), View.OnCreateContextMenuListener {
     var engineHandle: Long = 0L
     var fontSize: Float = 18f
         set(value) {
@@ -125,6 +128,26 @@ class TerminalCanvasView(context: Context) : View(context) {
 
     private var cols = 80
     private var rows = 24
+    
+    private val clipboardManager = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+
+    // Text selection
+    private var isSelecting = false
+    private var selectionStartX = 0
+    private var selectionStartY = 0
+    private var selectionEndX = 0
+    private var selectionEndY = 0
+    
+    private val selectionPaint = Paint().apply {
+        color = Color.argb(100, 100, 150, 255)
+        style = Paint.Style.FILL
+    }
+    
+    companion object {
+        private const val MENU_COPY = 1
+        private const val MENU_PASTE = 2
+        private const val MENU_SELECT_ALL = 3
+    }
 
     private val textPaint = Paint().apply {
         color = Color.WHITE
@@ -166,6 +189,7 @@ class TerminalCanvasView(context: Context) : View(context) {
     init {
         isFocusable = true
         isFocusableInTouchMode = true
+        setOnCreateContextMenuListener(this)
         updatePaint()
 
         postDelayed(object : Runnable {
@@ -205,12 +229,127 @@ class TerminalCanvasView(context: Context) : View(context) {
         scaleDetector.onTouchEvent(event)
         if (scaleDetector.isInProgress) return true
 
-        if (event.action == MotionEvent.ACTION_DOWN) {
-            requestFocus()
-            val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
-            imm.showSoftInput(this, InputMethodManager.SHOW_IMPLICIT)
+        when (event.action) {
+            MotionEvent.ACTION_DOWN -> {
+                val x = (event.x / charWidth).toInt().coerceIn(0, cols - 1)
+                val y = (event.y / lineHeight).toInt().coerceIn(0, rows - 1)
+                
+                if (isSelecting) {
+                    isSelecting = false
+                    invalidate()
+                } else {
+                    selectionStartX = x
+                    selectionStartY = y
+                    selectionEndX = x
+                    selectionEndY = y
+                }
+                
+                requestFocus()
+                val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+                imm.showSoftInput(this, InputMethodManager.SHOW_IMPLICIT)
+            }
+            MotionEvent.ACTION_MOVE -> {
+                if (event.eventTime - event.downTime > 300) {
+                    isSelecting = true
+                    val x = (event.x / charWidth).toInt().coerceIn(0, cols - 1)
+                    val y = (event.y / lineHeight).toInt().coerceIn(0, rows - 1)
+                    selectionEndX = x
+                    selectionEndY = y
+                    invalidate()
+                }
+            }
+            MotionEvent.ACTION_UP -> {
+                if (isSelecting) {
+                    showContextMenu()
+                    return true
+                }
+            }
         }
         return true
+    }
+    
+    override fun onCreateContextMenu(menu: ContextMenu, v: View, menuInfo: ContextMenu.ContextMenuInfo?) {
+        menu.setHeaderTitle("Terminal")
+        
+        if (isSelecting) {
+            menu.add(0, MENU_COPY, 0, "Copy").setOnMenuItemClickListener {
+                copySelectedText()
+                isSelecting = false
+                invalidate()
+                true
+            }
+        }
+        
+        menu.add(0, MENU_PASTE, 0, "Paste").setOnMenuItemClickListener {
+            pasteFromClipboard()
+            true
+        }
+        
+        menu.add(0, MENU_SELECT_ALL, 0, "Select All").setOnMenuItemClickListener {
+            selectAll()
+            true
+        }
+    }
+    
+    private fun selectAll() {
+        isSelecting = true
+        selectionStartX = 0
+        selectionStartY = 0
+        selectionEndX = cols - 1
+        selectionEndY = rows - 1
+        invalidate()
+        showContextMenu()
+    }
+    
+    private fun copySelectedText() {
+        if (engineHandle == 0L || !isSelecting) return
+        
+        val textBuilder = StringBuilder()
+        val (startY, startX, endY, endX) = if (selectionStartY < selectionEndY || 
+            (selectionStartY == selectionEndY && selectionStartX <= selectionEndX)) {
+            listOf(selectionStartY, selectionStartX, selectionEndY, selectionEndX)
+        } else {
+            listOf(selectionEndY, selectionEndX, selectionStartY, selectionStartX)
+        }
+        
+        for (y in startY..endY) {
+            val line = RinLib.getLine(engineHandle, y)
+            
+            when {
+                y == startY && y == endY -> {
+                    val start = startX.coerceIn(0, line.length)
+                    val end = (endX + 1).coerceIn(0, line.length)
+                    textBuilder.append(line.substring(start, end))
+                }
+                y == startY -> {
+                    val start = startX.coerceIn(0, line.length)
+                    textBuilder.append(line.substring(start).trimEnd())
+                    textBuilder.append("\n")
+                }
+                y == endY -> {
+                    val end = (endX + 1).coerceIn(0, line.length)
+                    textBuilder.append(line.substring(0, end))
+                }
+                else -> {
+                    textBuilder.append(line.trimEnd())
+                    textBuilder.append("\n")
+                }
+            }
+        }
+        
+        val clip = ClipData.newPlainText("terminal", textBuilder.toString())
+        clipboardManager.setPrimaryClip(clip)
+        
+        android.widget.Toast.makeText(context, "Copied to clipboard", android.widget.Toast.LENGTH_SHORT).show()
+    }
+    
+    private fun pasteFromClipboard() {
+        val clip = clipboardManager.primaryClip
+        if (clip != null && clip.itemCount > 0) {
+            val text = clip.getItemAt(0).text?.toString() ?: return
+            onInputCallback(text.toByteArray())
+            invalidate()
+        }
     }
 
     override fun onCheckIsTextEditor(): Boolean = true
@@ -405,7 +544,15 @@ class TerminalCanvasView(context: Context) : View(context) {
 
                 val schemeBg = scheme?.background ?: 0xFF0D0D0D.toInt()
 
-                if (bgColor != schemeBg && bgColor != Color.BLACK) {
+                if (isSelecting && isPositionInSelection(xPos, y)) {
+                    canvas.drawRect(
+                        xPos * charWidth,
+                        y * lineHeight,
+                        (xPos + 1) * charWidth,
+                        (y + 1) * lineHeight,
+                        selectionPaint
+                    )
+                } else if (bgColor != schemeBg && bgColor != Color.BLACK) {
                     bgPaint.color = bgColor
                     canvas.drawRect(
                         xPos * charWidth,
@@ -433,7 +580,7 @@ class TerminalCanvasView(context: Context) : View(context) {
             }
         }
 
-        if (cursorVisibleProvider()) {
+        if (cursorVisibleProvider() && !isSelecting) {
             val cx = RinLib.getCursorX(engineHandle)
             val cy = RinLib.getCursorY(engineHandle)
             if (cx < cols && cy < rows) {
@@ -453,6 +600,23 @@ class TerminalCanvasView(context: Context) : View(context) {
 
         if (engineHandle != 0L) {
             RinLib.clearDirty(engineHandle)
+        }
+    }
+    
+    private fun isPositionInSelection(x: Int, y: Int): Boolean {
+        val (startY, startX, endY, endX) = if (selectionStartY < selectionEndY || 
+            (selectionStartY == selectionEndY && selectionStartX <= selectionEndX)) {
+            listOf(selectionStartY, selectionStartX, selectionEndY, selectionEndX)
+        } else {
+            listOf(selectionEndY, selectionEndX, selectionStartY, selectionStartX)
+        }
+        
+        return when {
+            y < startY || y > endY -> false
+            y == startY && y == endY -> x in startX..endX
+            y == startY -> x >= startX
+            y == endY -> x <= endX
+            else -> true
         }
     }
 }

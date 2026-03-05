@@ -17,6 +17,7 @@ import androidx.compose.ui.platform.LocalContext
 import com.rin.RinLib
 import com.rin.terminal.SessionManager
 import com.rin.ui.components.ExtraKeysBar
+import com.rin.ui.components.HelpDialog
 import com.rin.ui.components.SessionDialog
 import com.rin.ui.components.TerminalSurface
 
@@ -29,6 +30,7 @@ fun TerminalScreen(
     var keyRepeating by remember { mutableStateOf(false) }
     var terminalView by remember { mutableStateOf<View?>(null) }
     var showSessionDialog by remember { mutableStateOf(false) }
+    var showHelpDialog by remember { mutableStateOf(false) }
     var inputBuffer by remember { mutableStateOf("") }
 
     val context = LocalContext.current
@@ -56,6 +58,12 @@ fun TerminalScreen(
                     if (input.contains("\r") || input.contains("\n")) {
                         // Enter check the command
                         val command = inputBuffer.trim().lowercase()
+                        
+                        if (command == "help") {
+                            showHelpDialog = true
+                            inputBuffer = ""
+                            return@TerminalSurface
+                        }
                         
                         if (command == "exit" || command == "quit") {
                             (context as? Activity)?.finishAffinity()
@@ -86,6 +94,20 @@ fun TerminalScreen(
             onCtrlToggle = { active ->
                 ctrlPressed = active
             },
+            onPaste = {
+                // Trigger paste
+                (terminalView as? com.rin.ui.components.TerminalCanvasView)?.let { view ->
+                    val clipboardManager = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                    val clip = clipboardManager.primaryClip
+                    if (clip != null && clip.itemCount > 0) {
+                        val text = clip.getItemAt(0).text?.toString()
+                        if (text != null && engineHandle != 0L) {
+                            RinLib.write(engineHandle, text.toByteArray())
+                            terminalView?.invalidate()
+                        }
+                    }
+                }
+            },
             onRepeatStateChange = { repeating ->
                 keyRepeating = repeating
             },
@@ -112,6 +134,12 @@ fun TerminalScreen(
             onRenameSession = { index, newName ->
                 sessionManager.renameSession(index, newName)
             }
+        )
+    }
+
+    if (showHelpDialog) {
+        HelpDialog(
+            onDismiss = { showHelpDialog = false }
         )
     }
 }
