@@ -156,9 +156,25 @@ class MainActivity : ComponentActivity() {
                     val mkshrc = homeDir.resolve(".mkshrc")
                     mkshrc.writeText("""
                         USER=${"$"}{USER:-$currentUser}
-                        export PATH=$prefix/usr/bin:${"$"}{PATH}
+                        export PATH=/system/xbin:/system/bin:/system/sbin:$prefix/usr/bin:${"$"}{PATH}
                         export LD_LIBRARY_PATH=$prefix/usr/lib:${"$"}{LD_LIBRARY_PATH}
-                        PS1="rin@${"$"}USER:~${"$"} "
+                        
+                        _rin_prompt() {
+                            local pwd_display="${"$"}PWD"
+                            if [ "${"$"}PWD" = "${"$"}HOME" ]; then
+                                pwd_display="~"
+                            elif [ "${"$"}{PWD#${"$"}HOME/}" != "${"$"}PWD" ]; then
+                                pwd_display="~/${"$"}{PWD#${"$"}HOME/}"
+                            fi
+                            
+                            if [ "${"$"}(id -u)" = "0" ]; then
+                                printf '\033[31mroot\033[0m@rin-%s:\033[34m%s\033[0m# ' "${"$"}USER" "${"$"}pwd_display"
+                            else
+                                printf 'rin@%s:\033[34m%s\033[0m${"$"} ' "${"$"}USER" "${"$"}pwd_display"
+                            fi
+                        }
+                        
+                        PS1='${"$"}(_rin_prompt)'
                     """.trimIndent() + "\n")
                     
                     // Create rpkg wrapper
