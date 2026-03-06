@@ -188,6 +188,175 @@ pub extern "system" fn Java_com_rin_RinLib_createEngine(
 }
 
 #[unsafe(no_mangle)]
+pub extern "system" fn Java_com_rin_RinLib_createRootEngine(
+    mut env: EnvUnowned,
+    _class: JClass,
+    width: jint,
+    height: jint,
+    font_size: f32,
+    home_dir: JString,
+    username: JString,
+    has_storage_permission: jint,
+    su_path: JString,
+) -> jlong {
+    #[cfg(feature = "android")]
+    android_logger::init_once(
+        android_logger::Config::default()
+            .with_max_level(log::LevelFilter::Debug)
+            .with_tag("RinNative"),
+    );
+
+    let home_dir_str: String = env
+        .with_env(|env| -> jni::errors::Result<String> {
+            let jstr: jni::objects::JString = home_dir;
+            #[allow(deprecated)]
+            let java_str = env.get_string(&jstr).map(|s| String::from(s))?;
+            Ok(java_str)
+        })
+        .resolve::<jni::errors::ThrowRuntimeExAndDefault>();
+
+    let mut username_str: String = env
+        .with_env(|env| -> jni::errors::Result<String> {
+            let jstr: jni::objects::JString = username;
+            #[allow(deprecated)]
+            let java_str = env.get_string(&jstr).map(|s| String::from(s))?;
+            Ok(java_str)
+        })
+        .resolve::<jni::errors::ThrowRuntimeExAndDefault>();
+
+    let su_path_str: String = env
+        .with_env(|env| -> jni::errors::Result<String> {
+            let jstr: jni::objects::JString = su_path;
+            #[allow(deprecated)]
+            let java_str = env.get_string(&jstr).map(|s| String::from(s))?;
+            Ok(java_str)
+        })
+        .resolve::<jni::errors::ThrowRuntimeExAndDefault>();
+
+    if username_str.is_empty() {
+        username_str = "user".to_string();
+    }
+
+    log::info!(
+        "Creating Root Engine: {}x{}, HOME={}, USER={}, SU={}",
+        width,
+        height,
+        home_dir_str,
+        username_str,
+        su_path_str
+    );
+
+    let renderer = Box::new(AndroidRenderer::new(font_size));
+    let engine = Arc::new(Mutex::new(TerminalEngine::new(
+        width as usize,
+        height as usize,
+        renderer,
+    )));
+
+    {
+        let mut engine_guard = engine.lock().unwrap();
+        let mut banner = String::from(concat!(
+            "\x1b[36m",
+            r"  ____  _       ",
+            "\r\n",
+            r" |  _ \(_)_ __  ",
+            "\r\n",
+            r" | |_) | | '_ \ ",
+            "\r\n",
+            r" |  _ <| | | | |",
+            "\r\n",
+            r" |_| \_\_|_| |_|",
+            "\r\n",
+            "\x1b[0m\r\n",
+            " \x1b[90mTerminal v",
+            env!("CARGO_PKG_VERSION"),
+            "\x1b[0m\r\n",
+            " \x1b[90mgithub.com/pavelc4/Rin\x1b[0m\r\n",
+            "\r\n",
+            " \x1b[31m\x1b[1m⚠ ROOT SESSION\x1b[0m\r\n",
+            " \x1b[33mType '\x1b[1mhelp\x1b[0m\x1b[33m' for available commands\x1b[0m\r\n",
+            "\r\n",
+        ));
+        
+        if has_storage_permission == 0 {
+            banner.push_str(concat!(
+                " \x1b[31m\x1b[1m⚠ Storage permission required!\x1b[0m\r\n",
+                " \x1b[33mRun '\x1b[1mrin-perm-storage\x1b[0m\x1b[33m' to grant access\x1b[0m\r\n",
+                " \x1b[90mPackage operations will fail without permission\x1b[0m\r\n",
+                "\r\n",
+            ));
+        } else {
+            banner.push_str(concat!(
+                " \x1b[32m✓ Storage permission granted\x1b[0m\r\n",
+                "\r\n",
+            ));
+        }
+        
+        let _ = engine_guard.write(banner.as_bytes());
+    }
+
+    let pty = match Pty::spawn(
+        &su_path_str,
+        width as u16,
+        height as u16,
+        Some(&home_dir_str),
+        Some(&username_str),
+    ) {
+        Ok(pty) => Arc::new(Mutex::new(pty)),
+        Err(e) => {
+            log::error!("Failed to spawn root PTY with {}: {}", su_path_str, e);
+            return -1;
+        }
+    };
+    let pty_clone = pty.clone();
+    let engine_clone = engine.clone();
+
+    thread::spawn(move || {
+        let mut buffer = [0u8; 16384];
+        let mut reader = {
+            let mut pty_guard = pty_clone.lock().unwrap();
+            match pty_guard.take_reader() {
+                Ok(r) => r,
+                Err(e) => {
+                    log::error!("Failed to take PTY reader: {}", e);
+                    return;
+                }
+            }
+        };
+
+        loop {
+            match reader.read(&mut buffer) {
+                Ok(0) => {
+                    log::info!("Root PTY closed (EOF)");
+                    break;
+                }
+                Ok(n) => {
+                    thread::sleep(std::time::Duration::from_millis(2));
+
+                    let mut engine_guard = engine_clone.lock().unwrap();
+                    if let Err(e) = engine_guard.write(&buffer[..n]) {
+                        log::error!("Failed to write to engine: {}", e);
+                    }
+                }
+                Err(e) => {
+                    log::error!("Error reading from root PTY: {}", e);
+                    break;
+                }
+            }
+        }
+    });
+
+    let handle = NEXT_HANDLE.fetch_add(1, Ordering::SeqCst);
+    let session = AndroidSession { engine, pty };
+
+    let sessions_arc = get_sessions();
+    sessions_arc.write().unwrap().insert(handle, session);
+
+    log::info!("Root engine created with handle: {}", handle);
+    handle
+}
+
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_com_rin_RinLib_destroyEngine(
     _env: EnvUnowned,
     _class: JClass,
