@@ -46,6 +46,7 @@ fun SessionDialog(
     onDismiss: () -> Unit,
     onSwitchSession: (Int) -> Unit,
     onCreateSession: () -> Unit,
+    onCreateRootSession: () -> Unit,
     onRemoveSession: (Int) -> Unit,
     onRenameSession: (Int, String) -> Unit
 ) {
@@ -196,6 +197,22 @@ fun SessionDialog(
                     )
                 ) {
                     Text("＋ New Session", fontWeight = FontWeight.SemiBold)
+                }
+                
+                Spacer(modifier = Modifier.height(8.dp))
+                
+                FilledTonalButton(
+                    onClick = {
+                        onCreateRootSession()
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp),
+                    colors = ButtonDefaults.filledTonalButtonColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer,
+                        contentColor = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                ) {
+                    Text("＋ New Root Session", fontWeight = FontWeight.SemiBold)
                 }
             }
         },

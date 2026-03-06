@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import com.rin.RinLib
+import com.rin.RootHelper
 import com.rin.permission.StoragePermissionHelper
 
 
@@ -22,18 +23,32 @@ class SessionManager(
 
     private var sessionCounter = 0
 
-    fun createSession(): TerminalSession {
+    fun createSession(asRoot: Boolean = false): TerminalSession {
         sessionCounter++
         val hasPermission = if (StoragePermissionHelper.isStoragePermissionGranted(context)) 1 else 0
-        val handle = RinLib.createEngine(
-            80, 24, 14.0f,
-            homeDir,
-            username,
-            hasPermission
-        )
+        
+        val handle = if (asRoot && RootHelper.isRootAvailable()) {
+            val suPath = RootHelper.getSuPath() ?: "su"
+            RinLib.createRootEngine(
+                80, 24, 14.0f,
+                homeDir,
+                username,
+                hasPermission,
+                suPath
+            )
+        } else {
+            RinLib.createEngine(
+                80, 24, 14.0f,
+                homeDir,
+                username,
+                hasPermission
+            )
+        }
+        
         val session = TerminalSession(
-            name = "Session $sessionCounter",
-            engineHandle = handle
+            name = if (asRoot) "Root $sessionCounter" else "Session $sessionCounter",
+            engineHandle = handle,
+            isRoot = asRoot && RootHelper.isRootAvailable()
         )
         sessions.add(session)
         activeIndexState.intValue = sessions.size - 1
@@ -50,15 +65,12 @@ class SessionManager(
         if (index !in sessions.indices) return
         val session = sessions[index]
 
-        // Destroy the native PTY engine
         if (session.engineHandle != 0L) {
             RinLib.destroyEngine(session.engineHandle)
         }
         sessions.removeAt(index)
 
-        // Adjust active index after removal
         if (sessions.isEmpty()) {
-            // Always keep at least one session alive
             createSession()
         } else {
             activeIndexState.intValue = activeIndexState.intValue.coerceIn(0, sessions.size - 1)
