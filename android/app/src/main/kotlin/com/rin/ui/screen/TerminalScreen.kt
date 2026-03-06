@@ -102,6 +102,12 @@ fun TerminalScreen(
 
                         if (command.lowercase() == "help") {
                             shouldSendToPty = false
+                            
+                            val backspaces = "\b".repeat(command.length)
+                            val spaces = " ".repeat(command.length)
+                            val clearCommand = backspaces + spaces + backspaces
+                            RinLib.write(engineHandle, clearCommand.toByteArray())
+                            
                             showHelpDialog = true
                             inputBuffer = ""
                         }
@@ -171,6 +177,9 @@ fun TerminalScreen(
             },
             onCreateSession = {
                 sessionManager.createSession()
+            },
+            onCreateRootSession = {
+                sessionManager.createSession(asRoot = true)
             },
             onRemoveSession = { index ->
                 sessionManager.removeSession(index)
