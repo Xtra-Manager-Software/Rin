@@ -34,13 +34,6 @@ lto = true
 codegen-units = 1
 strip = true
 
-[[example]]
-name = "shell"
-required-features = ["pty"]
-
-[[example]]
-name = "tui"
-required-features = ["pty", "crossterm"]
 
 [workspace]
 members = ["rpkg"]
