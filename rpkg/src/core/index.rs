@@ -1,10 +1,24 @@
-use crate::types::{Dependency, PackageInfo, VersionConstraint, VersionOp};
+use crate::core::types::{Dependency, PackageInfo, VersionConstraint, VersionOp};
 use flate2::read::GzDecoder;
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read};
 
 pub struct PackageIndex {
     packages: HashMap<String, PackageInfo>,
+}
+
+const VERSION_OPS: &[(&str, VersionOp)] = &[
+    (">=", VersionOp::Ge),
+    ("<=", VersionOp::Le),
+    (">>", VersionOp::Gt),
+    ("<<", VersionOp::Lt),
+    ("=", VersionOp::Eq),
+];
+
+fn parse_version_op(ver_part: &str) -> Option<(VersionOp, &str)> {
+    VERSION_OPS
+        .iter()
+        .find_map(|(prefix, op)| ver_part.strip_prefix(prefix).map(|v| (*op, v.trim())))
 }
 
 impl PackageIndex {
@@ -83,34 +97,17 @@ impl PackageIndex {
         deps.map(|s| {
             s.split(", ")
                 .filter_map(|d| {
-                    let d = d.split(" | ").next()?;
-                    let d = d.trim();
+                    let d = d.split(" | ").next()?.trim();
 
                     if let Some((name, ver_part)) = d.split_once(" (") {
                         let ver_part = ver_part.trim_end_matches(')');
-                        let (op, version) = if let Some(v) = ver_part.strip_prefix(">=") {
-                            (VersionOp::Ge, v.trim())
-                        } else if let Some(v) = ver_part.strip_prefix("<=") {
-                            (VersionOp::Le, v.trim())
-                        } else if let Some(v) = ver_part.strip_prefix(">>") {
-                            (VersionOp::Gt, v.trim())
-                        } else if let Some(v) = ver_part.strip_prefix("<<") {
-                            (VersionOp::Lt, v.trim())
-                        } else if let Some(v) = ver_part.strip_prefix("=") {
-                            (VersionOp::Eq, v.trim())
-                        } else {
-                            return Some(Dependency {
-                                name: name.to_string(),
-                                version: None,
-                            });
-                        };
-
+                        let version = parse_version_op(ver_part).map(|(op, v)| VersionConstraint {
+                            op,
+                            version: v.to_string(),
+                        });
                         Some(Dependency {
                             name: name.to_string(),
-                            version: Some(VersionConstraint {
-                                op,
-                                version: version.to_string(),
-                            }),
+                            version,
                         })
                     } else {
                         Some(Dependency {
@@ -151,6 +148,7 @@ impl PackageIndex {
     pub fn len(&self) -> usize {
         self.packages.len()
     }
+
     pub fn is_empty(&self) -> bool {
         self.packages.is_empty()
     }
@@ -168,19 +166,19 @@ mod tests {
     fn test_parse_depends() {
         let deps_str = "libc, libcurl (>= 7.80.0), zlib (= 1.2.11)".to_string();
         let deps = PackageIndex::parse_depends(Some(&deps_str));
-        
+
         assert_eq!(deps.len(), 3);
         assert_eq!(deps[0].name, "libc");
         assert!(deps[0].version.is_none());
-        
+
         assert_eq!(deps[1].name, "libcurl");
         assert_eq!(deps[1].version.as_ref().unwrap().op, VersionOp::Ge);
         assert_eq!(deps[1].version.as_ref().unwrap().version, "7.80.0");
-        
+
         assert_eq!(deps[2].name, "zlib");
         assert_eq!(deps[2].version.as_ref().unwrap().op, VersionOp::Eq);
     }
-    
+
     #[test]
     fn test_parse_simple_list() {
         let provides = "editor, vi".to_string();

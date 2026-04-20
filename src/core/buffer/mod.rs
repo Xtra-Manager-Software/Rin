@@ -1,3 +1,4 @@
+// moved from: src/core/buffer.rs
 use super::cell::{Cell, CellStyle, Hyperlink};
 use super::grid::Grid;
 use crate::parser::{Charset, Command, CursorStyle, MouseMode};
@@ -6,7 +7,6 @@ use std::collections::VecDeque;
 
 const DEFAULT_SCROLLBACK_LIMIT: usize = 2_000;
 
-#[derive(Debug, Clone)]
 pub struct TerminalBuffer {
     grid: Grid,
     cursor_x: usize,
@@ -32,7 +32,7 @@ pub struct TerminalBuffer {
 }
 
 #[derive(Debug, Clone)]
-struct AlternateState {
+pub struct AlternateState {
     grid: Grid,
     cursor_x: usize,
     cursor_y: usize,
@@ -154,7 +154,20 @@ impl TerminalBuffer {
         std::mem::take(&mut self.pending_responses)
     }
 
-    fn translate_char(&self, c: char) -> char {
+    pub fn resize(&mut self, width: usize, height: usize) -> Result<()> {
+        self.grid.resize(width, height);
+        self.cursor_x = self.cursor_x.min(width.saturating_sub(1));
+        self.cursor_y = self.cursor_y.min(height.saturating_sub(1));
+        Ok(())
+    }
+
+    pub fn clear(&mut self) {
+        self.grid.clear();
+        self.cursor_x = 0;
+        self.cursor_y = 0;
+    }
+
+    pub fn translate_char(&self, c: char) -> char {
         if self.charset == Charset::LineDrawing {
             match c {
                 'j' => '┘',
@@ -177,10 +190,8 @@ impl TerminalBuffer {
     }
 
     pub fn write_char(&mut self, c: char) -> Result<()> {
-        // Check character width
         let char_width = unicode_width::UnicodeWidthChar::width(c).unwrap_or(0);
 
-        // Zero-width: attach to previous cell
         if char_width == 0 && c != ' ' {
             let prev_x = if self.cursor_x > 0 {
                 self.cursor_x - 1
@@ -196,7 +207,6 @@ impl TerminalBuffer {
         let translated = self.translate_char(c);
         let is_wide = char_width == 2;
 
-        // Write the main character
         if let Some(cell) = self.grid.get_mut(self.cursor_x, self.cursor_y) {
             cell.character = translated;
             cell.style = self.current_style;
@@ -208,7 +218,6 @@ impl TerminalBuffer {
 
         self.cursor_x += 1;
 
-        // For wide chars, add a spacer cell
         if is_wide && self.cursor_x < self.grid.width() {
             if let Some(cell) = self.grid.get_mut(self.cursor_x, self.cursor_y) {
                 cell.character = ' ';
@@ -219,7 +228,6 @@ impl TerminalBuffer {
             self.cursor_x += 1;
         }
 
-        // Handle line wrap
         if self.cursor_x >= self.grid.width() {
             if self.auto_wrap_mode {
                 self.cursor_x = 0;
@@ -237,7 +245,7 @@ impl TerminalBuffer {
         Ok(())
     }
 
-    fn advance_to_next_tab_stop(&mut self) {
+    pub fn advance_to_next_tab_stop(&mut self) {
         let width = self.grid.width();
         for x in (self.cursor_x + 1)..width {
             if self.tab_stops.get(x).copied().unwrap_or(false) {
@@ -248,15 +256,14 @@ impl TerminalBuffer {
         self.cursor_x = width.saturating_sub(1);
     }
 
-    /// Returns (top, bottom) of the effective scroll region, defaulting to full screen.
-    fn effective_scroll_region(&self) -> (usize, usize) {
+    pub fn effective_scroll_region(&self) -> (usize, usize) {
         let height = self.grid.height();
         self.scroll_region
             .map(|(t, b)| (t, b.min(height.saturating_sub(1))))
             .unwrap_or((0, height.saturating_sub(1)))
     }
 
-    fn scroll_up(&mut self, n: usize) {
+    pub fn scroll_up(&mut self, n: usize) {
         let width = self.grid.width();
         let (top, bottom) = self.effective_scroll_region();
 
@@ -291,7 +298,7 @@ impl TerminalBuffer {
         }
     }
 
-    fn scroll_down(&mut self, n: usize) {
+    pub fn scroll_down(&mut self, n: usize) {
         let width = self.grid.width();
         let (top, bottom) = self.effective_scroll_region();
 
@@ -309,7 +316,7 @@ impl TerminalBuffer {
         }
     }
 
-    fn insert_lines_at_cursor(&mut self, n: usize) {
+    pub fn insert_lines_at_cursor(&mut self, n: usize) {
         let width = self.grid.width();
         let (_, bottom) = self.effective_scroll_region();
         let start = self.cursor_y;
@@ -318,7 +325,6 @@ impl TerminalBuffer {
             return;
         }
 
-        // Shift rows
         for y in (start..=(bottom.saturating_sub(n))).rev() {
             for x in 0..width {
                 if let Some(cell) = self.grid.get(x, y).cloned() {
@@ -327,7 +333,6 @@ impl TerminalBuffer {
             }
         }
 
-        // Clear the n lines at cursor
         for y in start..(start + n).min(bottom + 1) {
             for x in 0..width {
                 let _ = self.grid.set(x, y, Cell::default());
@@ -335,7 +340,7 @@ impl TerminalBuffer {
         }
     }
 
-    fn delete_lines_at_cursor(&mut self, n: usize) {
+    pub fn delete_lines_at_cursor(&mut self, n: usize) {
         let width = self.grid.width();
         let (_, bottom) = self.effective_scroll_region();
         let start = self.cursor_y;
@@ -352,11 +357,107 @@ impl TerminalBuffer {
             }
         }
 
-        let clear_start = if bottom + 1 >= n { bottom + 1 - n } else { start };
+        let clear_start = if bottom + 1 >= n {
+            bottom + 1 - n
+        } else {
+            start
+        };
         for y in clear_start..=bottom {
             for x in 0..width {
                 let _ = self.grid.set(x, y, Cell::default());
             }
+        }
+    }
+
+    pub fn erase_in_display(&mut self, mode: u8) {
+        let width = self.grid.width();
+        let height = self.grid.height();
+        match mode {
+            0 => {
+                for x in self.cursor_x..width {
+                    let _ = self.grid.set(x, self.cursor_y, Cell::default());
+                }
+                for y in (self.cursor_y + 1)..height {
+                    for x in 0..width {
+                        let _ = self.grid.set(x, y, Cell::default());
+                    }
+                }
+            }
+            1 => {
+                for y in 0..self.cursor_y {
+                    for x in 0..width {
+                        let _ = self.grid.set(x, y, Cell::default());
+                    }
+                }
+                for x in 0..=self.cursor_x.min(width.saturating_sub(1)) {
+                    let _ = self.grid.set(x, self.cursor_y, Cell::default());
+                }
+            }
+            _ => {}
+        }
+    }
+
+    pub fn erase_in_line(&mut self, mode: u8) {
+        let width = self.grid.width();
+        match mode {
+            0 => {
+                for x in self.cursor_x..width {
+                    let _ = self.grid.set(x, self.cursor_y, Cell::default());
+                }
+            }
+            1 => {
+                for x in 0..=self.cursor_x.min(width.saturating_sub(1)) {
+                    let _ = self.grid.set(x, self.cursor_y, Cell::default());
+                }
+            }
+            2 => {
+                for x in 0..width {
+                    let _ = self.grid.set(x, self.cursor_y, Cell::default());
+                }
+            }
+            _ => {}
+        }
+    }
+
+    pub fn erase_chars(&mut self, n: usize) {
+        for i in 0..n {
+            if self.cursor_x + i < self.grid.width() {
+                let _ = self
+                    .grid
+                    .set(self.cursor_x + i, self.cursor_y, Cell::default());
+            }
+        }
+    }
+
+    pub fn enter_alternate_screen(&mut self) {
+        if self.alternate_state.is_some() {
+            return;
+        }
+
+        let width = self.grid.width();
+        let height = self.grid.height();
+
+        let state = AlternateState {
+            grid: std::mem::replace(&mut self.grid, Grid::new(width, height)),
+            cursor_x: self.cursor_x,
+            cursor_y: self.cursor_y,
+            current_style: self.current_style,
+            scrollback: std::mem::take(&mut self.scrollback),
+        };
+
+        self.alternate_state = Some(Box::new(state));
+        self.cursor_x = 0;
+        self.cursor_y = 0;
+        self.current_style = CellStyle::default();
+    }
+
+    pub fn exit_alternate_screen(&mut self) {
+        if let Some(state) = self.alternate_state.take() {
+            self.grid = state.grid;
+            self.cursor_x = state.cursor_x;
+            self.cursor_y = state.cursor_y;
+            self.current_style = state.current_style;
+            self.scrollback = state.scrollback;
         }
     }
 
@@ -434,52 +535,10 @@ impl TerminalBuffer {
                 }
             }
             Command::EraseDisplay(mode) => {
-                let width = self.grid.width();
-                let height = self.grid.height();
-                match mode {
-                    0 => {
-                        for x in self.cursor_x..width {
-                            let _ = self.grid.set(x, self.cursor_y, Cell::default());
-                        }
-                        for y in (self.cursor_y + 1)..height {
-                            for x in 0..width {
-                                let _ = self.grid.set(x, y, Cell::default());
-                            }
-                        }
-                    }
-                    1 => {
-                        for y in 0..self.cursor_y {
-                            for x in 0..width {
-                                let _ = self.grid.set(x, y, Cell::default());
-                            }
-                        }
-                        for x in 0..=self.cursor_x.min(width.saturating_sub(1)) {
-                            let _ = self.grid.set(x, self.cursor_y, Cell::default());
-                        }
-                    }
-                    _ => {}
-                }
+                self.erase_in_display(mode);
             }
             Command::EraseLine(mode) => {
-                let width = self.grid.width();
-                match mode {
-                    0 => {
-                        for x in self.cursor_x..width {
-                            let _ = self.grid.set(x, self.cursor_y, Cell::default());
-                        }
-                    }
-                    1 => {
-                        for x in 0..=self.cursor_x.min(width.saturating_sub(1)) {
-                            let _ = self.grid.set(x, self.cursor_y, Cell::default());
-                        }
-                    }
-                    2 => {
-                        for x in 0..width {
-                            let _ = self.grid.set(x, self.cursor_y, Cell::default());
-                        }
-                    }
-                    _ => {}
-                }
+                self.erase_in_line(mode);
             }
             Command::SetStyle(style) => {
                 self.current_style = style;
@@ -513,13 +572,7 @@ impl TerminalBuffer {
                 self.delete_lines_at_cursor(n);
             }
             Command::EraseChars(n) => {
-                for i in 0..n {
-                    if self.cursor_x + i < self.grid.width() {
-                        let _ = self
-                            .grid
-                            .set(self.cursor_x + i, self.cursor_y, Cell::default());
-                    }
-                }
+                self.erase_chars(n);
             }
             Command::Reset => {
                 self.grid.clear();
@@ -570,9 +623,8 @@ impl TerminalBuffer {
                 if top < actual_bottom {
                     self.scroll_region = Some((top, actual_bottom));
                 } else {
-                    self.scroll_region = None; // Reset to full screen
+                    self.scroll_region = None;
                 }
-                // DECSTBM also moves cursor to home
                 self.cursor_x = 0;
                 self.cursor_y = 0;
             }
@@ -580,7 +632,6 @@ impl TerminalBuffer {
                 self.mouse_mode = mode;
             }
             Command::InsertChars(n) => {
-                // Shift cells right from cursor, inserting blanks
                 let width = self.grid.width();
                 let y = self.cursor_y;
                 for x in (self.cursor_x..width).rev() {
@@ -590,7 +641,6 @@ impl TerminalBuffer {
                         }
                     }
                 }
-                // Fill with blanks
                 for x in self.cursor_x..self.cursor_x.saturating_add(n).min(width) {
                     if let Some(cell) = self.grid.get_mut(x, y) {
                         *cell = Cell::default();
@@ -599,7 +649,6 @@ impl TerminalBuffer {
                 }
             }
             Command::DeleteChars(n) => {
-                // Shift cells left from cursor, deleting n chars
                 let width = self.grid.width();
                 let y = self.cursor_y;
                 for x in self.cursor_x..width {
@@ -615,23 +664,16 @@ impl TerminalBuffer {
                     }
                 }
             }
-            Command::Bell => {
-                // Bell is typically handled by the UI (vibrate, sound, flash)
-                // Buffer stores it so UI can check for pending bells
-            }
+            Command::Bell => {}
             Command::CursorPositionReport => {
-                // Send cursor position as \x1b[row;colR (1-indexed)
                 let response = format!("\x1b[{};{}R", self.cursor_y + 1, self.cursor_x + 1);
                 self.pending_responses.push(response.into_bytes());
             }
             Command::SetFocusEvents(enabled) => {
-                // Store focus event reporting state
-                // The actual focus in/out is sent by the UI layer
                 self.focus_events = enabled;
             }
             Command::SetOriginMode(enabled) => {
                 self.origin_mode = enabled;
-                // DECOM also moves cursor to home position
                 self.cursor_x = 0;
                 self.cursor_y = if self.origin_mode {
                     self.scroll_region.map(|(top, _)| top).unwrap_or(0)
@@ -646,25 +688,20 @@ impl TerminalBuffer {
                 self.pending_clipboard.push(content);
             }
             Command::MoveCursorToRow(row) => {
-                // VPA
                 self.cursor_y = row.min(self.grid.height().saturating_sub(1));
             }
             Command::MoveCursorToColumn(col) => {
-                // CHA/HPA
                 self.cursor_x = col.min(self.grid.width().saturating_sub(1));
             }
             Command::CursorNextLine(n) => {
-                // CNL
                 self.cursor_x = 0;
                 self.cursor_y = (self.cursor_y + n).min(self.grid.height().saturating_sub(1));
             }
             Command::CursorPreviousLine(n) => {
-                // CPL
                 self.cursor_x = 0;
                 self.cursor_y = self.cursor_y.saturating_sub(n);
             }
             Command::ReverseIndex => {
-                // RI (ESC M)
                 let (top, _) = self.effective_scroll_region();
                 if self.cursor_y <= top {
                     self.scroll_down(1);
@@ -675,48 +712,8 @@ impl TerminalBuffer {
         }
         Ok(())
     }
-
-    pub fn resize(&mut self, width: usize, height: usize) -> Result<()> {
-        self.grid.resize(width, height);
-        self.cursor_x = self.cursor_x.min(width.saturating_sub(1));
-        self.cursor_y = self.cursor_y.min(height.saturating_sub(1));
-        Ok(())
-    }
-
-    pub fn clear(&mut self) {
-        self.grid.clear();
-        self.cursor_x = 0;
-        self.cursor_y = 0;
-    }
-    pub fn enter_alternate_screen(&mut self) {
-        if self.alternate_state.is_some() {
-            return;
-        }
-
-        let width = self.grid.width();
-        let height = self.grid.height();
-
-        let state = AlternateState {
-            grid: std::mem::replace(&mut self.grid, Grid::new(width, height)),
-            cursor_x: self.cursor_x,
-            cursor_y: self.cursor_y,
-            current_style: self.current_style,
-            scrollback: std::mem::take(&mut self.scrollback),
-        };
-
-        self.alternate_state = Some(Box::new(state));
-        self.cursor_x = 0;
-        self.cursor_y = 0;
-        self.current_style = CellStyle::default();
-    }
-
-    pub fn exit_alternate_screen(&mut self) {
-        if let Some(state) = self.alternate_state.take() {
-            self.grid = state.grid;
-            self.cursor_x = state.cursor_x;
-            self.cursor_y = state.cursor_y;
-            self.current_style = state.current_style;
-            self.scrollback = state.scrollback;
-        }
-    }
 }
+
+mod alternate;
+mod cursor;
+mod screen;

@@ -1,3 +1,4 @@
+// path updated
 pub mod core;
 pub mod input;
 pub mod parser;
@@ -70,7 +71,7 @@ impl TerminalEngine {
 }
 
 #[cfg(feature = "android")]
-pub mod android;
+pub mod platform;
 
 #[cfg(any(feature = "pty", feature = "android"))]
 pub mod pty;
