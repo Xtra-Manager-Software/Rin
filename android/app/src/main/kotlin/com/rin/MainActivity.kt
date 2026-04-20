@@ -146,6 +146,14 @@ class MainActivity : ComponentActivity() {
                     SetupScreen(
                         onComplete = { name ->
                             username = name
+                        },
+                        onRequestStorage = {
+                            RinPermStorage.requestStoragePermission(this@MainActivity) { granted ->
+                                if (granted) {
+                                    val permFile = File(filesDir, ".storage_permission")
+                                    permFile.writeText("granted")
+                                }
+                            }
                         }
                     )
                 } else {
@@ -175,6 +183,11 @@ class MainActivity : ComponentActivity() {
                         }
                         
                         PS1='${"$"}(_rin_prompt)'
+                        
+                        # Auto-request storage permission if not yet granted
+                        if [ ! -f "$prefix/.storage_permission" ]; then
+                            rin-perm-storage
+                        fi
                     """.trimIndent() + "\n")
                     
                     // Create rpkg wrapper
