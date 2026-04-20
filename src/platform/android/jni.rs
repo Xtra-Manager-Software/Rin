@@ -21,8 +21,8 @@ fn get_sessions() -> Arc<RwLock<HashMap<EngineHandle, TerminalSession>>> {
 fn create_banner(
     is_root: bool,
     has_storage_permission: bool,
-    home_dir: &str,
-    username: &str,
+    _home_dir: &str,
+    _username: &str,
 ) -> String {
     let mut banner = String::from(concat!(
         "\x1b[36m",
