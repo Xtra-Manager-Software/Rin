@@ -1,6 +1,6 @@
 use crate::renderer::AndroidRenderer;
 use crate::{Pty, TerminalEngine};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex};
 use std::thread;
 
 pub struct TerminalSession {
@@ -76,9 +76,9 @@ impl TerminalSession {
         Self { engine, pty }
     }
 
-    pub fn write(&self, data: &[u8]) -> std::io::Result<usize> {
+    pub fn write(&self, data: &[u8]) -> anyhow::Result<usize> {
         let mut pty = self.pty.lock().unwrap();
-        pty.write(data)
+        pty.write(data).map(|()| data.len())
     }
 
     pub fn write_to_engine(&self, data: &[u8]) -> anyhow::Result<()> {

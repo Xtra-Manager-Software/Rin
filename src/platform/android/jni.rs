@@ -1,14 +1,11 @@
-// moved from: src/android.rs
-// path updated
-
 use super::session::TerminalSession;
-use jni::objects::{JByteArray, JClass, JIntArray, JString};
+use jni::objects::{JByteArray, JClass, JIntArray, JObject, JString};
 use jni::sys::{jint, jlong};
 use jni::EnvUnowned;
 use std::collections::HashMap;
 use std::fmt::Write;
 use std::sync::atomic::{AtomicI64, Ordering};
-use std::sync::{Arc, Mutex, OnceLock, RwLock};
+use std::sync::{Arc, OnceLock, RwLock};
 
 type EngineHandle = jlong;
 
@@ -134,7 +131,8 @@ pub extern "system" fn Java_com_rin_RinLib_createEngine(
         None,
     );
 
-    let mut engine = session.get_buffer().lock().unwrap();
+    let buffer = session.get_buffer();
+    let mut engine = buffer.lock().unwrap();
     let banner = create_banner(
         false,
         has_storage_permission != 0,
@@ -219,7 +217,8 @@ pub extern "system" fn Java_com_rin_RinLib_createRootEngine(
         Some(&su_path_str),
     );
 
-    let mut engine = session.get_buffer().lock().unwrap();
+    let buffer = session.get_buffer();
+    let mut engine = buffer.lock().unwrap();
     let banner = create_banner(
         true,
         has_storage_permission != 0,
@@ -345,7 +344,8 @@ pub extern "system" fn Java_com_rin_RinLib_getLine<'local>(
     let sessions_arc = get_sessions();
     let sessions = sessions_arc.read().unwrap();
     if let Some(session) = sessions.get(&handle) {
-        let engine = session.get_buffer().lock().unwrap();
+        let buffer = session.get_buffer();
+        let engine = buffer.lock().unwrap();
         let buffer = engine.buffer();
         let grid = buffer.grid();
         if let Some(row) = grid.row(y as usize) {
@@ -368,7 +368,8 @@ pub extern "system" fn Java_com_rin_RinLib_getCursorX(
     let sessions_arc = get_sessions();
     let sessions = sessions_arc.read().unwrap();
     if let Some(session) = sessions.get(&handle) {
-        let engine = session.get_buffer().lock().unwrap();
+        let buffer = session.get_buffer();
+        let engine = buffer.lock().unwrap();
         engine.buffer().cursor_pos().0 as jint
     } else {
         0
@@ -384,7 +385,8 @@ pub extern "system" fn Java_com_rin_RinLib_getCursorY(
     let sessions_arc = get_sessions();
     let sessions = sessions_arc.read().unwrap();
     if let Some(session) = sessions.get(&handle) {
-        let engine = session.get_buffer().lock().unwrap();
+        let buffer = session.get_buffer();
+        let engine = buffer.lock().unwrap();
         engine.buffer().cursor_pos().1 as jint
     } else {
         0
@@ -401,7 +403,8 @@ pub extern "system" fn Java_com_rin_RinLib_getCellData<'local>(
     let sessions_arc = get_sessions();
     let sessions = sessions_arc.read().unwrap();
     if let Some(session) = sessions.get(&handle) {
-        let engine = session.get_buffer().lock().unwrap();
+        let buffer = session.get_buffer();
+        let engine = buffer.lock().unwrap();
         let buffer = engine.buffer();
         let grid = buffer.grid();
         if let Some(row) = grid.row(y as usize) {
@@ -459,7 +462,8 @@ pub extern "system" fn Java_com_rin_RinLib_getCellDataOptimized<'local>(
     let sessions_arc = get_sessions();
     let sessions = sessions_arc.read().unwrap();
     if let Some(session) = sessions.get(&handle) {
-        let engine = session.get_buffer().lock().unwrap();
+        let buffer = session.get_buffer();
+        let engine = buffer.lock().unwrap();
         let buffer = engine.buffer();
         let grid = buffer.grid();
         if let Some(row) = grid.row(y as usize) {
@@ -501,7 +505,8 @@ pub extern "system" fn Java_com_rin_RinLib_getCellDataOptimized<'local>(
             return env
                 .with_env(|env| -> jni::errors::Result<jni::objects::JIntArray> {
                     let jarray = env.new_int_array(data.len())?;
-                    env.set_int_array_region(&jarray, 0, &data)?;
+                    let jarray_obj = JObject::from(jarray);
+                    jarray_obj.set_region(env, 0, &data)?;
                     Ok(jarray)
                 })
                 .resolve::<jni::errors::ThrowRuntimeExAndDefault>();
@@ -523,7 +528,8 @@ pub extern "system" fn Java_com_rin_RinLib_hasDirtyRows(
     let sessions_arc = get_sessions();
     let sessions = sessions_arc.read().unwrap();
     if let Some(session) = sessions.get(&handle) {
-        let engine = session.get_buffer().lock().unwrap();
+        let buffer = session.get_buffer();
+        let engine = buffer.lock().unwrap();
         engine.buffer().grid().has_dirty_rows()
     } else {
         false
@@ -539,7 +545,8 @@ pub extern "system" fn Java_com_rin_RinLib_clearDirty(
     let sessions_arc = get_sessions();
     let sessions = sessions_arc.read().unwrap();
     if let Some(session) = sessions.get(&handle) {
-        let mut engine = session.get_buffer().lock().unwrap();
+        let buffer = session.get_buffer();
+        let mut engine = buffer.lock().unwrap();
         engine.buffer_mut().grid_mut().clear_dirty();
     }
 }
