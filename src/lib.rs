@@ -1,8 +1,8 @@
+// path updated
 pub mod core;
 pub mod input;
 pub mod parser;
 pub mod renderer;
-
 
 pub use core::{Cell, CellStyle, Color, Grid, TerminalBuffer};
 pub use input::{InputHandler, Key, KeyEvent, Modifiers};
@@ -70,7 +70,7 @@ impl TerminalEngine {
 }
 
 #[cfg(feature = "android")]
-pub mod android;
+pub mod platform;
 
 #[cfg(any(feature = "pty", feature = "android"))]
 pub mod pty;
