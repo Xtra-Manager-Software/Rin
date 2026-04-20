@@ -61,7 +61,10 @@ fun saveUsername(context: Context, username: String) {
 }
 
 @Composable
-fun SetupScreen(onComplete: (String) -> Unit) {
+fun SetupScreen(
+    onComplete: (String) -> Unit,
+    onRequestStorage: () -> Unit = {}
+) {
     var username by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
@@ -175,6 +178,7 @@ fun SetupScreen(onComplete: (String) -> Unit) {
                             onDone = {
                                 if (username.length >= 3) {
                                     saveUsername(context, username)
+                                    onRequestStorage()
                                     onComplete(username)
                                 } else {
                                     error = "At least 3 characters"
@@ -195,6 +199,7 @@ fun SetupScreen(onComplete: (String) -> Unit) {
                         onClick = {
                             if (username.length >= 3) {
                                 saveUsername(context, username)
+                                onRequestStorage()
                                 onComplete(username)
                             } else {
                                 error = "At least 3 characters"
