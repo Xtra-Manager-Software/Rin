@@ -505,8 +505,7 @@ pub extern "system" fn Java_com_rin_RinLib_getCellDataOptimized<'local>(
             return env
                 .with_env(|env| -> jni::errors::Result<jni::objects::JIntArray> {
                     let jarray = env.new_int_array(data.len())?;
-                    let jarray_obj = JObject::from(jarray);
-                    jarray_obj.set_region(env, 0, &data)?;
+                    env.set_int_array_region(&jarray, 0, &data)?;
                     Ok(jarray)
                 })
                 .resolve::<jni::errors::ThrowRuntimeExAndDefault>();
