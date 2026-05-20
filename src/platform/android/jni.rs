@@ -101,7 +101,7 @@ fn create_engine_inner(
     has_storage_permission: bool,
     is_root: bool,
     su_path: Option<&str>,
-) -> jlong {
+) -> Result<jlong, anyhow::Error> {
     ensure_logger();
 
     let username_str = if username.is_empty() { "user" } else { username };
@@ -123,7 +123,7 @@ fn create_engine_inner(
         home_dir,
         username_str,
         su_path,
-    );
+    )?;
 
     let buffer = session.get_buffer();
     let mut engine = buffer.lock().unwrap();
@@ -134,7 +134,7 @@ fn create_engine_inner(
     get_sessions().write().unwrap().insert(handle, session);
 
     log::info!("{} created with handle: {}", label, handle);
-    handle
+    Ok(handle)
 }
 
 #[unsafe(no_mangle)]
@@ -150,7 +150,7 @@ pub extern "system" fn Java_com_rin_RinLib_createEngine(
 ) -> jlong {
     let home_dir_str = get_jstring(&mut env, &home_dir);
     let username_str = get_jstring(&mut env, &username);
-    create_engine_inner(
+    match create_engine_inner(
         width,
         height,
         font_size,
@@ -159,7 +159,13 @@ pub extern "system" fn Java_com_rin_RinLib_createEngine(
         has_storage_permission != 0,
         false,
         None,
-    )
+    ) {
+        Ok(handle) => handle,
+        Err(e) => {
+            log::error!("Failed to create engine: {}", e);
+            0
+        }
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -177,7 +183,7 @@ pub extern "system" fn Java_com_rin_RinLib_createRootEngine(
     let home_dir_str = get_jstring(&mut env, &home_dir);
     let username_str = get_jstring(&mut env, &username);
     let su_path_str = get_jstring(&mut env, &su_path);
-    create_engine_inner(
+    match create_engine_inner(
         width,
         height,
         font_size,
@@ -186,7 +192,13 @@ pub extern "system" fn Java_com_rin_RinLib_createRootEngine(
         has_storage_permission != 0,
         true,
         Some(&su_path_str),
-    )
+    ) {
+        Ok(handle) => handle,
+        Err(e) => {
+            log::error!("Failed to create root engine: {}", e);
+            0
+        }
+    }
 }
 
 #[unsafe(no_mangle)]
