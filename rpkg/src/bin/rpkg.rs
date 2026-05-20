@@ -41,17 +41,13 @@ struct Cli {
 
 fn handle_multicall() {
     let mut args = std::env::args();
-    if let Some(arg0) = args.next() {
-        let exe_path = PathBuf::from(&arg0);
-        if let Some(exe_name) = exe_path.file_name().and_then(|s| s.to_str()) {
-            if exe_name != "rpkg"
-                && exe_name != "rpkg-real"
-                && exe_name != "rpkg_cli"
-                && exe_name != "librpkg_cli.so"
-            {
-                execute_proxied_binary(&exe_path, exe_name, args);
-            }
-        }
+    let Some(arg0) = args.next() else { return };
+    let exe_path = PathBuf::from(&arg0);
+    let Some(exe_name) = exe_path.file_name().and_then(|s| s.to_str()) else { return };
+
+    match exe_name {
+        "rpkg" | "rpkg-real" | "rpkg_cli" | "librpkg_cli.so" => {}
+        _ => execute_proxied_binary(&exe_path, exe_name, args),
     }
 }
 
@@ -154,10 +150,10 @@ fn execute_proxied_binary(exe_path: &Path, exe_name: &str, args: std::env::Args)
     let resolved_name = current.file_name().and_then(|n| n.to_str()).unwrap_or("");
     let mut multicall_args = Vec::new();
     if resolved_name != exe_name {
-        if resolved_name == "coreutils" {
-            multicall_args.push(format!("--coreutils-prog={}", exe_name));
-        } else if resolved_name == "busybox" || resolved_name == "toybox" {
-            multicall_args.push(exe_name.to_string());
+        match resolved_name {
+            "coreutils" => multicall_args.push(format!("--coreutils-prog={}", exe_name)),
+            "busybox" | "toybox" => multicall_args.push(exe_name.to_string()),
+            _ => {}
         }
     }
 
