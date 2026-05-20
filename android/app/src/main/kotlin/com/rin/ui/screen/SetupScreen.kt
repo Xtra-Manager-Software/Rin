@@ -60,13 +60,17 @@ fun saveUsername(context: Context, username: String) {
         .apply()
 }
 
+enum class SetupStep { Username, Storage }
+
 @Composable
 fun SetupScreen(
     onComplete: (String) -> Unit,
-    onRequestStorage: () -> Unit = {}
+    onRequestStorage: ((Boolean) -> Unit) -> Unit = {}
 ) {
+    var currentStep by remember { mutableStateOf(SetupStep.Username) }
     var username by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
+    var isRequestingStorage by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
     Surface(
@@ -120,105 +124,158 @@ fun SetupScreen(
 
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    Text(
-                        text = "Rin Terminal",
-                        style = MaterialTheme.typography.headlineMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-
-                    Text(
-                        text = "Create your terminal identity",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-
-                    // Feature chips
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.padding(vertical = 8.dp)
-                    ) {
-                        FeatureChip("Fast")
-                        FeatureChip("Rust")
-                        FeatureChip("Native")
-                    }
-
-                    // Preview - above input for visibility
-                    Card(
-                        colors = CardDefaults.cardColors(
-                            containerColor = Color(0xFF1A1A1A)
-                        ),
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
+                    if (currentStep == SetupStep.Username) {
                         Text(
-                            text = "rin@${username.ifEmpty { "you" }}:~$ _",
-                            fontFamily = FontFamily.Monospace,
-                            color = MaterialTheme.colorScheme.primary,
-                            fontSize = 13.sp,
-                            modifier = Modifier.padding(12.dp)
+                            text = "Rin Terminal",
+                            style = MaterialTheme.typography.headlineMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface
                         )
-                    }
 
-                    Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Create your terminal identity",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
 
-                    OutlinedTextField(
-                        value = username,
-                        onValueChange = { 
-                            username = it.lowercase().filter { c -> c.isLetterOrDigit() || c == '_' }
-                            error = null
-                        },
-                        label = { Text("Username") },
-                        placeholder = { Text("your_name") },
-                        singleLine = true,
-                        isError = error != null,
-                        supportingText = error?.let { { Text(it, color = MaterialTheme.colorScheme.error) } },
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                        keyboardActions = KeyboardActions(
-                            onDone = {
+                        // Feature chips
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.padding(vertical = 8.dp)
+                        ) {
+                            FeatureChip("Fast")
+                            FeatureChip("Rust")
+                            FeatureChip("Native")
+                        }
+
+                        // Preview - above input for visibility
+                        Card(
+                            colors = CardDefaults.cardColors(
+                                containerColor = Color(0xFF1A1A1A)
+                            ),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = "rin@${username.ifEmpty { "you" }}:~$ _",
+                                fontFamily = FontFamily.Monospace,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontSize = 13.sp,
+                                modifier = Modifier.padding(12.dp)
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        OutlinedTextField(
+                            value = username,
+                            onValueChange = { 
+                                username = it.lowercase().filter { c -> c.isLetterOrDigit() || c == '_' }
+                                error = null
+                            },
+                            label = { Text("Username") },
+                            placeholder = { Text("your_name") },
+                            singleLine = true,
+                            isError = error != null,
+                            supportingText = error?.let { { Text(it, color = MaterialTheme.colorScheme.error) } },
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                            keyboardActions = KeyboardActions(
+                                onDone = {
+                                    if (username.length >= 3) {
+                                        saveUsername(context, username)
+                                        currentStep = SetupStep.Storage
+                                    } else {
+                                        error = "At least 3 characters"
+                                    }
+                                }
+                            ),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                            ),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Button(
+                            onClick = {
                                 if (username.length >= 3) {
                                     saveUsername(context, username)
-                                    onRequestStorage()
-                                    onComplete(username)
+                                    currentStep = SetupStep.Storage
                                 } else {
                                     error = "At least 3 characters"
                                 }
-                            }
-                        ),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = MaterialTheme.colorScheme.primary,
-                            unfocusedBorderColor = MaterialTheme.colorScheme.outline
-                        ),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Button(
-                        onClick = {
-                            if (username.length >= 3) {
-                                saveUsername(context, username)
-                                onRequestStorage()
-                                onComplete(username)
-                            } else {
-                                error = "At least 3 characters"
-                            }
-                        },
-                        enabled = username.length >= 3,
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.primary
-                        ),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(52.dp)
-                    ) {
+                            },
+                            enabled = username.length >= 3,
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.primary
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(52.dp)
+                        ) {
+                            Text(
+                                text = "Next",
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    } else {
                         Text(
-                            text = "Get Started",
-                            style = MaterialTheme.typography.labelLarge,
-                            fontWeight = FontWeight.SemiBold
+                            text = "Storage Access",
+                            style = MaterialTheme.typography.headlineMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface
                         )
+
+                        Text(
+                            text = "Rin Terminal requires storage access to manage your files, install packages, and compile code properly.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            textAlign = TextAlign.Center,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        Button(
+                            onClick = {
+                                isRequestingStorage = true
+                                onRequestStorage { granted ->
+                                    isRequestingStorage = false
+                                    if (granted) {
+                                        onComplete(username)
+                                    } else {
+                                        error = "Permission denied. Try again."
+                                    }
+                                }
+                            },
+                            enabled = !isRequestingStorage,
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.primary
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(52.dp)
+                        ) {
+                            Text(
+                                text = if (isRequestingStorage) "Waiting..." else "Grant Permission",
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+
+                        if (error != null && currentStep == SetupStep.Storage) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = error!!,
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(24.dp))

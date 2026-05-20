@@ -144,12 +144,13 @@ class MainActivity : ComponentActivity() {
                         onComplete = { name ->
                             username = name
                         },
-                        onRequestStorage = {
+                        onRequestStorage = { callback ->
                             RinPermStorage.requestStoragePermission(this@MainActivity) { granted ->
                                 if (granted) {
                                     val permFile = File(filesDir, ".storage_permission")
                                     permFile.writeText("granted")
                                 }
+                                callback(granted)
                             }
                         }
                     )
