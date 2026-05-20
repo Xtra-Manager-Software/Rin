@@ -57,19 +57,7 @@ fn create_banner(
         ));
     }
 
-    if !has_storage_permission {
-        banner.push_str(concat!(
-            " \x1b[31m\x1b[1mStorage permission required!\x1b[0m\r\n",
-            " \x1b[33mRun '\x1b[1mrin-perm-storage\x1b[0m\x1b[33m' to grant access\x1b[0m\r\n",
-            " \x1b[90mPackage operations will fail without permission\x1b[0m\r\n",
-            "\r\n",
-        ));
-    } else {
-        banner.push_str(concat!(
-            " \x1b[32mStorage permission granted\x1b[0m\r\n",
-            "\r\n",
-        ));
-    }
+
 
     banner
 }
