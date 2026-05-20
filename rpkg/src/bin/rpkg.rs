@@ -44,7 +44,11 @@ fn handle_multicall() {
     if let Some(arg0) = args.next() {
         let exe_path = PathBuf::from(&arg0);
         if let Some(exe_name) = exe_path.file_name().and_then(|s| s.to_str()) {
-            if exe_name != "rpkg" && exe_name != "rpkg_cli" && exe_name != "librpkg_cli.so" {
+            if exe_name != "rpkg"
+                && exe_name != "rpkg-real"
+                && exe_name != "rpkg_cli"
+                && exe_name != "librpkg_cli.so"
+            {
                 execute_proxied_binary(&exe_path, exe_name, args);
             }
         }
