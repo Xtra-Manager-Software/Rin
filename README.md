@@ -13,7 +13,8 @@
 
 ## About
 
-**Rin Terminal** is a modern Android terminal emulator with a built-in package manager powered by the Termux ecosystem. Built with **Kotlin**, **Jetpack Compose**, and native **Rust** via JNI.
+Rin Terminal is an Android terminal emulator with a built-in package manager based on the Termux ecosystem.  
+It is built using Kotlin, Jetpack Compose, and Rust through JNI.
 
 ---
 
@@ -24,6 +25,7 @@
     <img src="doc/image/ss02.jpg" width="30%" />
     <img src="doc/image/ss03.jpg" width="30%" />
 </p>
+
 <p align="center">
     <img src="doc/image/ss04.jpg" width="30%" />
     <img src="doc/image/ss05.jpg" width="30%" />
@@ -35,14 +37,11 @@
 ## Features
 
 - **Built-in Package Manager (`rpkg`)**  
-  A lightweight, pacman-style package manager written in Rust that taps into the Termux repository ecosystem.  
-  → [Full rpkg documentation](doc/package-manager.md)
+  Package manager, compatible with the Termux repository ecosystem.  
+  → [Full documentation](doc/package-manager.md)
 
 - **Material 3 UI**  
-  Clean, modern interface built with Jetpack Compose.
-
-- **Fast & Minimal**  
-  Native Rust binaries via JNI — lightweight architecture with minimal overhead.
+  Interface built with Jetpack Compose.
 
 ---
 
@@ -115,7 +114,7 @@
 
 ## Credits
 
-- [Termux](https://termux.dev/) – The premier Android terminal emulator and Linux environment. `rpkg` leverages their incredible package repository ecosystem.
+- [Termux](https://termux.dev/) –  Android terminal emulator and Linux environment. `rpkg` leverages their incredible package repository ecosystem.
 
 ---
 
