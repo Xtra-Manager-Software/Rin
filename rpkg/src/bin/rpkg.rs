@@ -1,12 +1,11 @@
 use clap::Parser;
 use colored::Colorize;
-use rpkg::manager::PackageManager;
 use rpkg::DEFAULT_PREFIX;
+use rpkg::manager::PackageManager;
 use std::io::Read;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-
 
 #[derive(Parser, Debug)]
 #[command(name = "rpkg", version, about = "Rin Package Manager")]
@@ -38,12 +37,13 @@ struct Cli {
     targets: Vec<String>,
 }
 
-
 fn handle_multicall() {
     let mut args = std::env::args();
     let Some(arg0) = args.next() else { return };
     let exe_path = PathBuf::from(&arg0);
-    let Some(exe_name) = exe_path.file_name().and_then(|s| s.to_str()) else { return };
+    let Some(exe_name) = exe_path.file_name().and_then(|s| s.to_str()) else {
+        return;
+    };
 
     match exe_name {
         "rpkg" | "rpkg-real" | "rpkg_cli" | "librpkg_cli.so" => {}
@@ -185,7 +185,6 @@ fn execute_proxied_binary(exe_path: &Path, exe_name: &str, args: std::env::Args)
     std::process::exit(1);
 }
 
-
 fn run_operation(cli: Cli) -> anyhow::Result<()> {
     let mut pm = PackageManager::new(&cli.prefix)?;
 
@@ -229,7 +228,11 @@ fn run_operation(cli: Cli) -> anyhow::Result<()> {
         }
     } else if cli.query {
         for pkg in pm.list_installed() {
-            println!("{} {}", pkg.info.name.bold(), pkg.info.version.green().bold());
+            println!(
+                "{} {}",
+                pkg.info.name.bold(),
+                pkg.info.version.green().bold()
+            );
         }
     } else {
         println!(
