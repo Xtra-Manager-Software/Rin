@@ -12,8 +12,8 @@ impl<'a> Resolver<'a> {
         Self { index, installed }
     }
 
-    pub fn resolve(&self, target_package: &str) -> anyhow::Result<Vec<PackageInfo>> {
-        let mut to_install = Vec::new();
+    pub fn resolve(&self, target_package: &str) -> anyhow::Result<Vec<&'a PackageInfo>> {
+        let mut to_install: Vec<&'a PackageInfo> = Vec::new();
         let mut visited = HashSet::new();
         let mut in_stack = HashSet::new();
 
@@ -25,7 +25,7 @@ impl<'a> Resolver<'a> {
     fn resolve_recursive(
         &self,
         package_name: &str,
-        result: &mut Vec<PackageInfo>,
+        result: &mut Vec<&'a PackageInfo>,
         visited: &mut HashSet<String>,
         in_stack: &mut HashSet<String>,
     ) -> anyhow::Result<()> {
@@ -42,7 +42,7 @@ impl<'a> Resolver<'a> {
             .or_else(|| {
                 self.index
                     .iter()
-                    .find(|p| p.provides.contains(&package_name.to_string()))
+                    .find(|p| p.provides.iter().any(|s| s == package_name))
             })
             .ok_or_else(|| anyhow::anyhow!("Package not found in index: {}", package_name))?;
 
@@ -54,7 +54,7 @@ impl<'a> Resolver<'a> {
 
         in_stack.remove(&pkg.name);
         visited.insert(pkg.name.clone());
-        result.push(pkg.clone());
+        result.push(pkg);
 
         Ok(())
     }

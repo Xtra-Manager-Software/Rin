@@ -1,7 +1,7 @@
 use crate::core::extract::extract_deb;
 use crate::core::index::PackageIndex;
 use crate::core::resolver::Resolver;
-use crate::core::types::InstalledPackage;
+use crate::core::types::{InstalledPackage, PackageInfo};
 use crate::manager::PackageManager;
 use colored::Colorize;
 use std::collections::HashSet;
@@ -25,14 +25,11 @@ impl PackageManager {
         };
         let resolver = Resolver::new(&index, installed_set);
 
-        let mut to_install = Vec::new();
+        let mut to_install: Vec<&PackageInfo> = Vec::new();
         for package_name in package_names {
             let reqs = resolver.resolve(package_name)?;
             for req in reqs {
-                if !to_install
-                    .iter()
-                    .any(|p: &crate::core::types::PackageInfo| p.name == req.name)
-                {
+                if !to_install.iter().any(|p| p.name == req.name) {
                     to_install.push(req);
                 }
             }
@@ -164,7 +161,7 @@ impl PackageManager {
             );
             std::io::stdout().flush().unwrap();
 
-            downloaded_files.push((pkg.clone(), buffer));
+            downloaded_files.push(((*pkg).clone(), buffer));
         }
 
         println!("{}", ":: Executing package hooks...".blue().bold());

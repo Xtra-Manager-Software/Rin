@@ -50,11 +50,11 @@ impl PackageIndex {
                 current.clear();
                 current_key = None;
             } else if line.starts_with(' ') || line.starts_with('\t') {
-                if let Some(key) = &current_key {
-                    if let Some(value) = current.get_mut(key) {
-                        value.push('\n');
-                        value.push_str(line.trim());
-                    }
+                if let Some(key) = &current_key
+                    && let Some(value) = current.get_mut(key)
+                {
+                    value.push('\n');
+                    value.push_str(line.trim());
                 }
             } else if let Some((key, value)) = line.split_once(": ") {
                 current_key = Some(key.to_string());
@@ -62,10 +62,10 @@ impl PackageIndex {
             }
         }
 
-        if !current.is_empty() {
-            if let Some(pkg) = Self::build_package(&current) {
-                packages.insert(pkg.name.clone(), pkg);
-            }
+        if !current.is_empty()
+            && let Some(pkg) = Self::build_package(&current)
+        {
+            packages.insert(pkg.name.clone(), pkg);
         }
 
         log::debug!("Parsed {} packages from index", packages.len());
@@ -75,8 +75,10 @@ impl PackageIndex {
     fn build_package(fields: &HashMap<String, String>) -> Option<PackageInfo> {
         let name = fields.get("Package")?.clone();
         let description = fields.get("Description").cloned().unwrap_or_default();
+        let name_lower = name.to_lowercase();
+        let desc_lower = description.to_lowercase();
         Some(PackageInfo {
-            name: name.clone(),
+            name,
             version: fields.get("Version")?.clone(),
             architecture: fields.get("Architecture").cloned().unwrap_or_default(),
             filename: fields.get("Filename")?.clone(),
@@ -89,11 +91,11 @@ impl PackageIndex {
             depends: Self::parse_depends(fields.get("Depends")),
             provides: Self::parse_simple_list(fields.get("Provides")),
             conflicts: Self::parse_simple_list(fields.get("Conflicts")),
-            description: description.clone(),
+            description,
             homepage: fields.get("Homepage").cloned(),
             maintainer: fields.get("Maintainer").cloned(),
-            name_lower: name.to_lowercase(),
-            desc_lower: description.to_lowercase(),
+            name_lower,
+            desc_lower,
         })
     }
 
