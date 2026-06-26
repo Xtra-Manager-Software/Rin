@@ -160,10 +160,10 @@ impl Perform for AnsiPerformer {
         if let Some(cmd) = params.first() {
             match *cmd {
                 b"0" | b"2" => {
-                    if let Some(title_bytes) = params.get(1) {
-                        if let Ok(title) = std::str::from_utf8(title_bytes) {
-                            self.commands.push(Command::SetTitle(title.to_string()));
-                        }
+                    if let Some(title_bytes) = params.get(1)
+                        && let Ok(title) = std::str::from_utf8(title_bytes)
+                    {
+                        self.commands.push(Command::SetTitle(title.to_string()));
                     }
                 }
                 b"8" => {
@@ -186,11 +186,11 @@ impl Perform for AnsiPerformer {
                     }
                 }
                 b"52" => {
-                    if let Some(data_bytes) = params.get(2) {
-                        if let Ok(data) = std::str::from_utf8(data_bytes) {
-                            self.commands
-                                .push(Command::CopyToClipboard(data.to_string()));
-                        }
+                    if let Some(data_bytes) = params.get(2)
+                        && let Ok(data) = std::str::from_utf8(data_bytes)
+                    {
+                        self.commands
+                            .push(Command::CopyToClipboard(data.to_string()));
                     }
                 }
                 _ => {}

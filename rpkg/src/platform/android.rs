@@ -4,9 +4,9 @@
 // into_raw() releases ownership of the returned jstring to the JNI framework.
 
 use crate::manager::PackageManager;
-use jni::strings::JNIStr;
 use jni::EnvUnowned;
 use jni::objects::{JClass, JString};
+use jni::strings::JNIStr;
 use jni::sys::jstring;
 use std::ffi::CString;
 
@@ -20,17 +20,14 @@ pub extern "system" fn Java_com_rin_rpkg_RpkgLib_execute<'local>(
 ) -> jstring {
     let outcome = env.with_env(|env| -> Result<JString<'_>, jni::errors::Error> {
         let prefix_str: String = {
-            #[allow(deprecated)]
             let s = env.get_string(&prefix)?;
             s.into()
         };
         let op_str: String = {
-            #[allow(deprecated)]
             let s = env.get_string(&op)?;
             s.into()
         };
         let args_str: String = {
-            #[allow(deprecated)]
             let s = env.get_string(&args)?;
             s.into()
         };

@@ -24,7 +24,7 @@ impl PackageManager {
         let db_path = prefix.join("var/lib/rpkg/db.json");
         let cache_dir = prefix.join("var/cache/rpkg");
 
-        fs::create_dir_all(&prefix.join("var/lib/rpkg"))?;
+        fs::create_dir_all(prefix.join("var/lib/rpkg"))?;
         fs::create_dir_all(&cache_dir)?;
 
         let mut pm = Self {

@@ -27,10 +27,10 @@ impl PackageManager {
 
         let mut to_upgrade = Vec::new();
         for (name, installed) in &self.installed {
-            if let Some(latest) = index.get(name) {
-                if latest.version != installed.info.version {
-                    to_upgrade.push(name.clone());
-                }
+            if let Some(latest) = index.get(name)
+                && latest.version != installed.info.version
+            {
+                to_upgrade.push(name.clone());
             }
         }
 

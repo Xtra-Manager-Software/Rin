@@ -35,7 +35,7 @@ fn strip_upstream(raw: &str) -> Option<&str> {
     Some(normalized)
 }
 
-fn patch_elf_interpreter(out: &mut Vec<u8>) {
+fn patch_elf_interpreter(out: &mut [u8]) {
     if !out.starts_with(b"\x7FELF") {
         return;
     }
@@ -58,21 +58,21 @@ fn patch_elf_interpreter(out: &mut Vec<u8>) {
         b"/system/bin/linker\0"
     };
 
-    if let Some(pos) = out.windows(interp_len).position(|w| w == interp_bytes) {
-        if system_linker.len() <= interp_len + 1 {
-            for (i, &b) in system_linker.iter().enumerate() {
-                out[pos + i] = b;
-            }
-            for i in system_linker.len()..interp_len + 1 {
-                if pos + i < out.len() {
-                    out[pos + i] = 0;
-                }
-            }
-            log::debug!(
-                "Patched ELF interpreter to {:?}",
-                std::str::from_utf8(system_linker).unwrap_or("")
-            );
+    if let Some(pos) = out.windows(interp_len).position(|w| w == interp_bytes)
+        && system_linker.len() <= interp_len + 1
+    {
+        for (i, &b) in system_linker.iter().enumerate() {
+            out[pos + i] = b;
         }
+        for i in system_linker.len()..interp_len + 1 {
+            if pos + i < out.len() {
+                out[pos + i] = 0;
+            }
+        }
+        log::debug!(
+            "Patched ELF interpreter to {:?}",
+            std::str::from_utf8(system_linker).unwrap_or("")
+        );
     }
 }
 

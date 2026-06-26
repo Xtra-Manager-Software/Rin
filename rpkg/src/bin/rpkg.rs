@@ -122,7 +122,7 @@ fn resolve_interpreter(target_elf: &Path) -> (String, Vec<String>) {
 }
 
 fn execute_proxied_binary(exe_path: &Path, exe_name: &str, args: std::env::Args) -> ! {
-    let original_path = if exe_path.parent().map_or(true, |p| p.as_os_str().is_empty())
+    let original_path = if exe_path.parent().is_none_or(|p| p.as_os_str().is_empty())
         || exe_path.parent().unwrap().as_os_str() == "."
     {
         PathBuf::from(DEFAULT_PREFIX)
