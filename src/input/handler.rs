@@ -20,21 +20,11 @@ pub enum Key {
     F(u8),
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct Modifiers {
     pub ctrl: bool,
     pub alt: bool,
     pub shift: bool,
-}
-
-impl Default for Modifiers {
-    fn default() -> Self {
-        Self {
-            ctrl: false,
-            alt: false,
-            shift: false,
-        }
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -59,13 +49,17 @@ impl KeyEvent {
         match self.key {
             Key::Char(c) => {
                 if self.modifiers.ctrl {
-                    if c >= 'a' && c <= 'z' {
+                    if c.is_ascii_lowercase() {
                         return vec![(c as u8) - b'a' + 1];
-                    } else if c >= 'A' && c <= 'Z' {
+                    } else if c.is_ascii_uppercase() {
                         return vec![(c as u8) - b'A' + 1];
                     }
                 }
-                c.to_string().into_bytes()
+                {
+                    let mut buf = [0u8; 4];
+                    let len = c.encode_utf8(&mut buf).len();
+                    Vec::from(&buf[..len])
+                }
             }
             Key::Enter => vec![b'\r'],
             Key::Backspace => vec![0x7f],
@@ -82,7 +76,7 @@ impl KeyEvent {
             Key::Delete => vec![0x1b, b'[', b'3', b'~'],
             Key::Insert => vec![0x1b, b'[', b'2', b'~'],
             Key::F(n) => {
-                if n >= 1 && n <= 4 {
+                if (1..=4).contains(&n) {
                     vec![0x1b, b'O', b'P' + (n - 1)]
                 } else {
                     vec![]
@@ -119,3 +113,4 @@ impl Default for InputHandler {
         Self::new()
     }
 }
+
