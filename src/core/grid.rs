@@ -55,6 +55,29 @@ impl Grid {
         Ok(())
     }
 
+    pub fn swap_cells(&mut self, x1: usize, y1: usize, x2: usize, y2: usize) -> bool {
+        if x1 >= self.width || y1 >= self.height || x2 >= self.width || y2 >= self.height {
+            return false;
+        }
+        let idx1 = y1 * self.width + x1;
+        let idx2 = y2 * self.width + x2;
+        self.cells.swap(idx1, idx2);
+        self.dirty_rows[y1] = true;
+        self.dirty_rows[y2] = true;
+        true
+    }
+
+    pub fn take_row(&mut self, y: usize) -> Vec<Cell> {
+        let start = y * self.width;
+        let end = start + self.width;
+        let mut taken = Vec::with_capacity(self.width);
+        for cell in &mut self.cells[start..end] {
+            taken.push(std::mem::take(cell));
+        }
+        self.dirty_rows[y] = true;
+        taken
+    }
+
     pub fn clear(&mut self) {
         self.cells.fill(Cell::default());
         self.dirty_rows.fill(true);
@@ -70,7 +93,7 @@ impl Grid {
             for x in 0..copy_width {
                 let old_idx = y * self.width + x;
                 let new_idx = y * new_width + x;
-                new_cells[new_idx] = self.cells[old_idx].clone();
+                new_cells[new_idx] = std::mem::take(&mut self.cells[old_idx]);
             }
         }
 
@@ -119,3 +142,4 @@ impl Grid {
         Some(&mut self.cells[start..end])
     }
 }
+
