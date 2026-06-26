@@ -266,12 +266,11 @@ impl TerminalBuffer {
     pub fn scroll_up(&mut self, n: usize) {
         let width = self.grid.width();
         let (top, bottom) = self.effective_scroll_region();
+        let full_height = self.grid.height().saturating_sub(1);
 
-        if top == 0 && bottom == self.grid.height().saturating_sub(1) {
+        if top == 0 && bottom == full_height {
             for y in 0..n.min(bottom + 1) {
-                if let Some(row) = self.grid.row(y) {
-                    self.scrollback.push_back(row.to_vec());
-                }
+                self.scrollback.push_back(self.grid.take_row(y));
             }
             while self.scrollback.len() > self.scrollback_limit {
                 self.scrollback.pop_front();
@@ -280,9 +279,7 @@ impl TerminalBuffer {
 
         for y in (top + n)..=bottom {
             for x in 0..width {
-                if let Some(cell) = self.grid.get(x, y).cloned() {
-                    let _ = self.grid.set(x, y - n, cell);
-                }
+                self.grid.swap_cells(x, y, x, y - n);
             }
         }
 
@@ -293,7 +290,7 @@ impl TerminalBuffer {
             }
         }
 
-        if top == 0 && bottom == self.grid.height().saturating_sub(1) {
+        if top == 0 && bottom == full_height {
             self.cursor_y = self.cursor_y.saturating_sub(n);
         }
     }
@@ -304,9 +301,7 @@ impl TerminalBuffer {
 
         for y in (top..=(bottom.saturating_sub(n))).rev() {
             for x in 0..width {
-                if let Some(cell) = self.grid.get(x, y).cloned() {
-                    let _ = self.grid.set(x, y + n, cell);
-                }
+                self.grid.swap_cells(x, y, x, y + n);
             }
         }
         for y in top..=(top + n - 1).min(bottom) {
@@ -327,9 +322,7 @@ impl TerminalBuffer {
 
         for y in (start..=(bottom.saturating_sub(n))).rev() {
             for x in 0..width {
-                if let Some(cell) = self.grid.get(x, y).cloned() {
-                    let _ = self.grid.set(x, y + n, cell);
-                }
+                self.grid.swap_cells(x, y, x, y + n);
             }
         }
 
@@ -351,9 +344,7 @@ impl TerminalBuffer {
 
         for y in (start + n)..=bottom {
             for x in 0..width {
-                if let Some(cell) = self.grid.get(x, y).cloned() {
-                    let _ = self.grid.set(x, y - n, cell);
-                }
+                self.grid.swap_cells(x, y, x, y - n);
             }
         }
 
@@ -493,17 +484,14 @@ impl TerminalBuffer {
                     let tab_stop = 8;
                     self.cursor_x = ((self.cursor_x / tab_stop) + 1) * tab_stop;
                 }
-                0x08 => {
-                    if self.cursor_x > 0 {
-                        self.cursor_x -= 1;
-                    }
+                0x08 if self.cursor_x > 0 => {
+                    self.cursor_x -= 1;
                 }
                 _ => {}
             },
             Command::MoveCursor(x, y) => {
                 let (top, bottom) = if self.origin_mode {
                     self.scroll_region
-                        .map(|(t, b)| (t, b))
                         .unwrap_or((0, self.grid.height().saturating_sub(1)))
                 } else {
                     (0, self.grid.height().saturating_sub(1))
@@ -635,10 +623,10 @@ impl TerminalBuffer {
                 let width = self.grid.width();
                 let y = self.cursor_y;
                 for x in (self.cursor_x..width).rev() {
-                    if x + n < width {
-                        if let Some(cell) = self.grid.get(x, y).cloned() {
-                            let _ = self.grid.set(x + n, y, cell);
-                        }
+                    if x + n < width
+                        && let Some(cell) = self.grid.get(x, y).cloned()
+                    {
+                        let _ = self.grid.set(x + n, y, cell);
                     }
                 }
                 for x in self.cursor_x..self.cursor_x.saturating_add(n).min(width) {
@@ -653,9 +641,7 @@ impl TerminalBuffer {
                 let y = self.cursor_y;
                 for x in self.cursor_x..width {
                     if x + n < width {
-                        if let Some(cell) = self.grid.get(x + n, y).cloned() {
-                            let _ = self.grid.set(x, y, cell);
-                        }
+                        self.grid.swap_cells(x + n, y, x, y);
                     } else {
                         if let Some(cell) = self.grid.get_mut(x, y) {
                             *cell = Cell::default();
@@ -717,3 +703,4 @@ impl TerminalBuffer {
 mod alternate;
 mod cursor;
 mod screen;
+
