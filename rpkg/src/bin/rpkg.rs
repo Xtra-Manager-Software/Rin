@@ -51,74 +51,14 @@ fn handle_multicall() {
     }
 }
 
-fn detect_elf(path: &Path) -> bool {
-    std::fs::File::open(path)
-        .ok()
-        .and_then(|mut f| {
-            let mut magic = [0u8; 4];
-            f.read_exact(&mut magic).ok().map(|_| magic == *b"\x7FELF")
-        })
-        .unwrap_or(false)
-}
-
-fn resolve_interpreter(target_elf: &Path) -> (String, Vec<String>) {
-    use std::io::{BufRead, BufReader};
-
-    let default = (String::from("/system/bin/sh"), Vec::new());
-
-    let f = match std::fs::File::open(target_elf) {
-        Ok(f) => f,
-        Err(_) => return default,
-    };
-
-    let mut reader = BufReader::new(f);
-    let mut first_line = String::new();
-    if reader.read_line(&mut first_line).is_err() {
-        return default;
+fn elf_class(path: &Path) -> Option<u8> {
+    let mut f = std::fs::File::open(path).ok()?;
+    let mut buf = [0u8; 5];
+    f.read_exact(&mut buf).ok()?;
+    if buf[0..4] != *b"\x7FELF" {
+        return None;
     }
-
-    let first_line = first_line.trim();
-    if !first_line.starts_with("#!") {
-        return default;
-    }
-
-    let shebang = first_line[2..].trim();
-    let mut parts = shebang.split_whitespace();
-    let cmd = match parts.next() {
-        Some(c) => c,
-        None => return default,
-    };
-
-    let interpreter_args: Vec<String> = parts.map(|p| p.to_string()).collect();
-
-    let interpreter = match cmd {
-        c if c.ends_with("/env") => match interpreter_args.first() {
-            Some(env_cmd) => PathBuf::from(DEFAULT_PREFIX)
-                .join("usr/bin")
-                .join(env_cmd)
-                .to_string_lossy()
-                .into_owned(),
-            None => return default,
-        },
-        "/bin/sh" | "/system/bin/sh" => String::from("/system/bin/sh"),
-        _ => {
-            let name = std::path::Path::new(cmd)
-                .file_name()
-                .unwrap_or(std::ffi::OsStr::new(cmd));
-            PathBuf::from(DEFAULT_PREFIX)
-                .join("usr/bin")
-                .join(name)
-                .to_string_lossy()
-                .into_owned()
-        }
-    };
-
-    let args = match cmd {
-        c if c.ends_with("/env") => interpreter_args.into_iter().skip(1).collect(),
-        _ => interpreter_args,
-    };
-
-    (interpreter, args)
+    Some(buf[4])
 }
 
 fn execute_proxied_binary(exe_path: &Path, exe_name: &str, args: std::env::Args) -> ! {
@@ -147,6 +87,59 @@ fn execute_proxied_binary(exe_path: &Path, exe_name: &str, args: std::env::Args)
     }
 
     let target_elf = PathBuf::from(format!("{}.elf", current.display()));
+
+    // If no .elf proxy exists:
+    if !target_elf.exists() {
+        // Proxy symlink (still points to rpkg) but .elf is missing — broken install
+        if std::fs::read_link(&current).is_ok() {
+            eprintln!(
+                "rpkg proxy: {} is a proxy symlink but {}.elf is missing;\n\
+                 reinstall the package to fix this",
+                current.display(),
+                current.display(),
+            );
+            std::process::exit(1);
+        }
+        // Resolved package binary (e.g. /usr/lib/nvim-0.10/bin/nvim) — try multi-strategy exec
+        let lib_path = PathBuf::from(DEFAULT_PREFIX).join("usr").join("lib");
+        let args_vec: Vec<String> = args.collect();
+        let class = elf_class(&current);
+        let is_elf = class.is_some();
+
+        // Strategy 1: direct exec
+        if is_elf {
+            let err = Command::new(&current)
+                .args(&args_vec)
+                .env("LD_LIBRARY_PATH", &lib_path)
+                .exec();
+            log::warn!("direct exec of {} failed ({}), retrying via linker", current.display(), err);
+        }
+
+        // Strategy 2: linker exec
+        if is_elf {
+            let linker = if class == Some(2) { "/system/bin/linker64" } else { "/system/bin/linker" };
+            let err = Command::new(linker)
+                .arg(&current)
+                .args(&args_vec)
+                .env("LD_LIBRARY_PATH", &lib_path)
+                .exec();
+            log::warn!("linker exec of {} failed ({}), retrying via shell", current.display(), err);
+        }
+
+        // Strategy 3: shell exec (last resort)
+        let err = Command::new("/system/bin/sh")
+            .arg(&current)
+            .args(&args_vec)
+            .env("LD_LIBRARY_PATH", &lib_path)
+            .exec();
+        eprintln!(
+            "rpkg proxy: failed to exec {}: {}",
+            current.display(),
+            err
+        );
+        std::process::exit(1);
+    }
+
     let resolved_name = current.file_name().and_then(|n| n.to_str()).unwrap_or("");
     let mut multicall_args = Vec::new();
     if resolved_name != exe_name {
@@ -157,25 +150,40 @@ fn execute_proxied_binary(exe_path: &Path, exe_name: &str, args: std::env::Args)
         }
     }
 
-    let is_elf = detect_elf(&target_elf);
+    let args_vec: Vec<String> = args.collect();
     let lib_path = PathBuf::from(DEFAULT_PREFIX).join("usr").join("lib");
+    let class = elf_class(&target_elf);
+    let is_elf = class.is_some();
 
-    let err = if is_elf {
-        Command::new("/system/bin/linker64")
-            .arg(&target_elf)
-            .args(multicall_args)
-            .args(args)
+    // Strategy 1: direct exec (ELF with valid PT_INTERP, or scripts with shebang)
+    if is_elf {
+        let err = Command::new(&target_elf)
+            .args(&multicall_args)
+            .args(&args_vec)
             .env("LD_LIBRARY_PATH", &lib_path)
-            .exec()
-    } else {
-        let (interpreter, interpreter_args) = resolve_interpreter(&target_elf);
-        let mut cmd = Command::new(&interpreter);
-        cmd.args(interpreter_args);
-        cmd.arg(&target_elf);
-        cmd.args(args);
-        cmd.env("LD_LIBRARY_PATH", &lib_path);
-        cmd.exec()
-    };
+            .exec();
+        log::warn!("direct exec of {} failed ({}), retrying via linker", target_elf.display(), err);
+    }
+
+    // Strategy 2: exec via system linker (handles noexec mount, broken PT_INTERP)
+    if is_elf {
+        let linker = if class == Some(2) { "/system/bin/linker64" } else { "/system/bin/linker" };
+        let err = Command::new(linker)
+            .arg(&target_elf)
+            .args(&multicall_args)
+            .args(&args_vec)
+            .env("LD_LIBRARY_PATH", &lib_path)
+            .exec();
+        log::warn!("linker exec of {} failed ({}), retrying via shell", target_elf.display(), err);
+    }
+
+    // Strategy 3: exec via system shell (last resort)
+    let err = Command::new("/system/bin/sh")
+        .arg(&target_elf)
+        .args(&multicall_args)
+        .args(&args_vec)
+        .env("LD_LIBRARY_PATH", &lib_path)
+        .exec();
 
     eprintln!(
         "rpkg proxy: failed to exec {}: {}",
@@ -247,6 +255,16 @@ fn run_operation(cli: Cli) -> anyhow::Result<()> {
 }
 
 fn main() -> anyhow::Result<()> {
+    #[cfg(target_os = "android")]
+    {
+        let perm_file = std::path::Path::new(DEFAULT_PREFIX).join(".storage_permission");
+        if !perm_file.exists() {
+            eprintln!("\n\x1b[31m\x1b[1mError: Storage permission required!\x1b[0m");
+            eprintln!("\x1b[33mRun 'rin-perm-storage' to grant access before using rpkg\x1b[0m\n");
+            std::process::exit(1);
+        }
+    }
+
     env_logger::builder()
         .filter_level(log::LevelFilter::Info)
         .format_timestamp(None)
