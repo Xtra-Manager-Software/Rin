@@ -12,8 +12,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -44,6 +43,22 @@ class MainActivity : ComponentActivity() {
             terminalService = null
             serviceBound = false
         }
+    }
+
+    private fun getOrCreateSessionManager(
+        homeDir: String,
+        currentUser: String
+    ): SessionManager {
+        terminalService?.let { service ->
+            service.sessionManager?.let { return it }
+        }
+        val sm = SessionManager(
+            context = this,
+            homeDir = homeDir,
+            username = currentUser
+        )
+        terminalService?.sessionManager = sm
+        return sm
     }
 
     private fun installPrebuiltBinaries() {
@@ -229,28 +244,18 @@ class MainActivity : ComponentActivity() {
                     }
 
                     val sessionManager = remember {
-                        SessionManager(
-                            context = this@MainActivity,
+                        getOrCreateSessionManager(
                             homeDir = homeDir.absolutePath,
-                            username = currentUser
+                            currentUser = currentUser
                         )
                     }
 
-                    // Create the first session
-                    DisposableEffect(sessionManager) {
+                    // Create session only on cold start (not on config change / background return)
+                    LaunchedEffect(Unit) {
                         if (sessionManager.sessions.isEmpty()) {
                             sessionManager.createSession()
                         }
-                        terminalService?.sessionManager = sessionManager
-
-                        onDispose {
-                            sessionManager.destroyAll()
-                        }
-                    }
-                    val sessionCount = sessionManager.sessionCount
-                    SideEffect {
-                        terminalService?.sessionManager = sessionManager
-                        terminalService?.updateNotification(sessionCount)
+                        terminalService?.updateNotification(sessionManager.sessionCount)
                     }
 
                     TerminalScreen(sessionManager = sessionManager)

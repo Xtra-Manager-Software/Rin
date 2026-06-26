@@ -38,13 +38,15 @@ class TerminalSessionService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
-            sessionManager?.destroyAll()
+            sessionManager?.let { sm ->
+                sm.destroyAll()
+            }
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
             return START_NOT_STICKY
         }
 
-        startForeground(NOTIFICATION_ID, buildNotification(1))
+        startForeground(NOTIFICATION_ID, buildNotification(sessionManager?.sessions?.size ?: 1))
         return START_STICKY
     }
 
@@ -104,7 +106,9 @@ class TerminalSessionService : Service() {
     }
 
     override fun onDestroy() {
-        sessionManager?.destroyAll()
+        sessionManager?.let { sm ->
+            sm.destroyAll()
+        }
         super.onDestroy()
     }
 }
