@@ -41,7 +41,7 @@ fun TerminalSurface(
     onViewReady: (android.view.View) -> Unit = {},
     onClose: () -> Unit = {}
 ) {
-    var fontSize by remember { mutableFloatStateOf(8f) }
+    var fontSize by remember { mutableFloatStateOf(10f) }
     var ctrlState by remember { mutableStateOf(ctrlPressed) }
     var cursorVisible by remember { mutableStateOf(true) }
     val colorScheme = rememberTerminalColorScheme()
@@ -102,6 +102,7 @@ fun TerminalSurface(
         },
         modifier = modifier,
         update = { view ->
+            val prevHandle = view.engineHandle
             viewRef = view
             view.engineHandle = engineHandle
             view.fontSize = fontSize
@@ -111,6 +112,9 @@ fun TerminalSurface(
             view.cursorVisibleProvider = { cursorVisible }
             view.colorScheme = colorScheme
             view.onCloseCallback = onClose
+            if (engineHandle != 0L && engineHandle != prevHandle) {
+                view.handleResize()
+            }
             view.invalidate()
         }
     )
@@ -157,6 +161,7 @@ class TerminalCanvasView(context: Context) : View(context), View.OnCreateContext
         color = Color.WHITE
         typeface = Typeface.MONOSPACE
         isAntiAlias = true
+        isSubpixelText = true
     }
 
     private val cursorPaint = Paint().apply {
@@ -167,6 +172,7 @@ class TerminalCanvasView(context: Context) : View(context), View.OnCreateContext
     private val fgPaint = Paint().apply {
         typeface = Typeface.MONOSPACE
         isAntiAlias = true
+        isSubpixelText = true
     }
 
     private val charWidth: Float
@@ -178,15 +184,26 @@ class TerminalCanvasView(context: Context) : View(context), View.OnCreateContext
             return metrics.descent - metrics.ascent
         }
 
+    private var needsResize = false
+
     private val scaleDetector = ScaleGestureDetector(context, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
         override fun onScale(detector: ScaleGestureDetector): Boolean {
             val newSize = fontSize * detector.scaleFactor
             if (newSize in 4f..30f) {
                 fontSize = newSize
-                handleResize()
+                needsResize = true
+                updatePaint()
+                if (engineHandle != 0L) RinLib.markAllDirty(engineHandle)
                 invalidate()
             }
             return true
+        }
+
+        override fun onScaleEnd(detector: ScaleGestureDetector) {
+            if (needsResize) {
+                needsResize = false
+                handleResize()
+            }
         }
     })
 
@@ -219,7 +236,7 @@ class TerminalCanvasView(context: Context) : View(context), View.OnCreateContext
         handleResize()
     }
 
-    private fun handleResize() {
+    fun handleResize() {
         if (width > 0 && height > 0 && charWidth > 0 && lineHeight > 0) {
             cols = (width / charWidth).toInt().coerceAtLeast(1)
             rows = (height / lineHeight).toInt().coerceAtLeast(1)

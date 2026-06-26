@@ -80,6 +80,13 @@ class MainActivity : ComponentActivity() {
             Log.w("Rin", "Native library librpkg_cli.so not found in $nativeDir")
         }
 
+        // Cleanup old rpkg-real symlink from previous wrapper-based setup
+        val rpkgReal = File(binDir, "rpkg-real")
+        if (rpkgReal.exists()) {
+            rpkgReal.delete()
+            Log.i("Rin", "Cleaned up old rpkg-real symlink")
+        }
+
         // Install rin-perm-storage
         val permStorageScript = File(binDir, "rin-perm-storage")
         val prefix = filesDir.absolutePath
@@ -204,46 +211,6 @@ class MainActivity : ComponentActivity() {
                         fi
                     """.trimIndent() + "\n")
                     
-                    // Create rpkg wrapper
-                    val binDir = File(filesDir, "usr/bin")
-                    binDir.mkdirs()
-                    val rpkgWrapper = File(binDir, "rpkg-real")
-                    val rpkgScript = File(binDir, "rpkg")
-                    
-                    if (rpkgScript.exists() && !rpkgWrapper.exists() && !rpkgScript.isDirectory) {
-                        try {
-                            // Check symlink
-                            val isSymlink = try {
-                                android.system.Os.readlink(rpkgScript.absolutePath)
-                                true
-                            } catch (e: Exception) {
-                                false
-                            }
-                            
-                            if (isSymlink) {
-                                // Rename symlink
-                                rpkgScript.renameTo(rpkgWrapper)
-                                
-                                // Create wrapper
-                                rpkgScript.writeText("""
-                                    #!/system/bin/sh
-                                    PERM_FILE="$prefix/.storage_permission"
-                                    if [ ! -f "${"$"}PERM_FILE" ]; then
-                                        echo ""
-                                        echo "\033[31m\033[1mError: Storage permission required!\033[0m"
-                                        echo "\033[33mRun 'rin-perm-storage' to grant access before using rpkg\033[0m"
-                                        echo ""
-                                        exit 1
-                                    fi
-                                    exec $prefix/usr/bin/rpkg-real "${"$"}@"
-                                """.trimIndent())
-                                rpkgScript.setExecutable(true)
-                            }
-                        } catch (e: Exception) {
-                            Log.e("Rin", "Failed to create rpkg wrapper: ${e.message}")
-                        }
-                    }
-
                     val sessionManager = remember {
                         getOrCreateSessionManager(
                             homeDir = homeDir.absolutePath,
