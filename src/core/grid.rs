@@ -1,7 +1,7 @@
 use super::cell::Cell;
 use anyhow::Result;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Grid {
     cells: Vec<Cell>,
     dirty_rows: Vec<bool>,
