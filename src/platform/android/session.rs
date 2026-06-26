@@ -1,6 +1,6 @@
-use std::sync::atomic::{AtomicBool, Ordering};
 use crate::renderer::AndroidRenderer;
 use crate::{Pty, TerminalEngine};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
@@ -64,10 +64,24 @@ impl TerminalSession {
                         if let Err(e) = engine_guard.write(&buffer[..n]) {
                             log::error!("Failed to write to engine: {}", e);
                         }
+                        let responses = engine_guard.buffer_mut().drain_responses();
+                        drop(engine_guard);
+                        if !responses.is_empty()
+                            && let Ok(mut pty_guard) = pty_clone.lock()
+                        {
+                            for response in &responses {
+                                if let Err(e) = pty_guard.write(response) {
+                                    log::error!("Failed to write terminal response: {}", e);
+                                }
+                            }
+                        }
                     }
                     Err(e) => {
                         log::error!("Error reading from PTY: {}", e);
-                        let msg = format!("\r\n\x1b[1;31m[Process error: {} - Press Enter to close]\x1b[0m\r\n", e);
+                        let msg = format!(
+                            "\r\n\x1b[1;31m[Process error: {} - Press Enter to close]\x1b[0m\r\n",
+                            e
+                        );
                         let mut engine_guard = engine_clone.lock().unwrap();
                         let _ = engine_guard.write(msg.as_bytes());
                         is_alive_clone.store(false, Ordering::SeqCst);
@@ -77,7 +91,11 @@ impl TerminalSession {
             }
         });
 
-        Ok(Self { engine, pty, is_alive })
+        Ok(Self {
+            engine,
+            pty,
+            is_alive,
+        })
     }
 
     pub fn write(&self, data: &[u8]) -> anyhow::Result<usize> {
