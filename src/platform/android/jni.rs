@@ -7,9 +7,9 @@
 // after each native call.
 
 use super::session::TerminalSession;
+use jni::EnvUnowned;
 use jni::objects::{JByteArray, JClass, JIntArray, JString};
 use jni::sys::{jint, jlong};
-use jni::EnvUnowned;
 use std::collections::HashMap;
 use std::fmt::Write;
 use std::sync::atomic::{AtomicI64, Ordering};
@@ -95,8 +95,6 @@ fn create_banner(
         ));
     }
 
-
-
     banner
 }
 
@@ -112,7 +110,11 @@ fn create_engine_inner(
 ) -> Result<jlong, anyhow::Error> {
     ensure_logger();
 
-    let username_str = if username.is_empty() { "user" } else { username };
+    let username_str = if username.is_empty() {
+        "user"
+    } else {
+        username
+    };
 
     let label = if is_root { "Root Engine" } else { "Engine" };
     log::info!(
@@ -278,9 +280,11 @@ pub extern "system" fn Java_com_rin_RinLib_resize(
     width: jint,
     height: jint,
 ) -> jint {
-    with_session(handle, |session| match session.resize(width as usize, height as usize) {
-        Ok(_) => 0,
-        Err(_) => -1,
+    with_session(handle, |session| {
+        match session.resize(width as usize, height as usize) {
+            Ok(_) => 0,
+            Err(_) => -1,
+        }
     })
     .unwrap_or(-1)
 }
@@ -297,7 +301,8 @@ pub extern "system" fn Java_com_rin_RinLib_getLine<'local>(
         let engine = buffer.lock().unwrap();
         let buffer = engine.buffer();
         let grid = buffer.grid();
-        grid.row(y as usize).map(|row| row.iter().map(|c| c.character).collect::<String>())
+        grid.row(y as usize)
+            .map(|row| row.iter().map(|c| c.character).collect::<String>())
     })
     .flatten()
     .unwrap_or_default();
