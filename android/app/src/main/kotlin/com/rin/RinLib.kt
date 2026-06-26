@@ -18,6 +18,8 @@ object RinLib {
     external fun getCellData(handle: Long, y: Int): String
     external fun getCellDataOptimized(handle: Long, y: Int): IntArray
     external fun hasDirtyRows(handle: Long): Boolean
+    external fun isRowDirty(handle: Long, y: Int): Boolean
+    external fun markAllDirty(handle: Long)
     external fun clearDirty(handle: Long)
     external fun isAlive(handle: Long): Boolean
 }

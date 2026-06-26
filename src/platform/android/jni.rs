@@ -44,7 +44,7 @@ fn get_sessions() -> Arc<RwLock<HashMap<EngineHandle, TerminalSession>>> {
 fn get_jstring(env: &mut EnvUnowned<'_>, s: &JString<'_>) -> String {
     env.with_env(|env| -> jni::errors::Result<String> {
         #[allow(deprecated)]
-        let java_str = env.get_string(s).map(|s| String::from(s))?;
+        let java_str = env.get_string(s).map(String::from)?;
         Ok(java_str)
     })
     .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
@@ -58,7 +58,7 @@ fn with_session<R>(handle: jlong, f: impl FnOnce(&TerminalSession) -> R) -> Opti
 
 fn create_banner(
     is_root: bool,
-    has_storage_permission: bool,
+    _has_storage_permission: bool,
     _home_dir: &str,
     _username: &str,
 ) -> String {
@@ -98,6 +98,7 @@ fn create_banner(
     banner
 }
 
+#[allow(clippy::too_many_arguments)]
 fn create_engine_inner(
     width: jint,
     height: jint,
@@ -450,7 +451,7 @@ pub extern "system" fn Java_com_rin_RinLib_getCellDataOptimized<'local>(
 
     env.with_env(|env| -> jni::errors::Result<jni::objects::JIntArray> {
         let jarray = env.new_int_array(data.len())?;
-        env.set_int_array_region(&jarray, 0, &data)?;
+        jarray.set_region(&*env, 0, &data)?;
         Ok(jarray)
     })
     .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
@@ -468,6 +469,34 @@ pub extern "system" fn Java_com_rin_RinLib_hasDirtyRows(
         engine.buffer().grid().has_dirty_rows()
     })
     .unwrap_or(false)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_rin_RinLib_isRowDirty(
+    _env: EnvUnowned,
+    _class: JClass,
+    handle: jlong,
+    y: jint,
+) -> bool {
+    with_session(handle, |session| {
+        let buffer = session.get_buffer();
+        let engine = buffer.lock().unwrap();
+        engine.buffer().grid().is_row_dirty(y as usize)
+    })
+    .unwrap_or(false)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_rin_RinLib_markAllDirty(
+    _env: EnvUnowned,
+    _class: JClass,
+    handle: jlong,
+) {
+    with_session(handle, |session| {
+        let buffer = session.get_buffer();
+        let mut engine = buffer.lock().unwrap();
+        engine.buffer_mut().grid_mut().mark_all_dirty();
+    });
 }
 
 #[unsafe(no_mangle)]
