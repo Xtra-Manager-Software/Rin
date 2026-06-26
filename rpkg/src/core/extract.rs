@@ -207,7 +207,7 @@ pub fn extract_deb<R: Read>(reader: R, target_dir: &Path) -> anyhow::Result<Vec<
                             std::io::Write::write_all(&mut writer, &patched)?;
 
                             let mut perms = fs::metadata(&elf_dest_path)?.permissions();
-                            perms.set_mode(permissions & 0o666); // Strip execute bit
+                            perms.set_mode(permissions);
                             fs::set_permissions(&elf_dest_path, perms)?;
 
                             let _ = fs::remove_file(&dest_path);
