@@ -133,7 +133,7 @@ fn execute_proxied_binary(exe_path: &Path, exe_name: &str, args: std::env::Args)
         exe_path.to_path_buf()
     };
 
-    let mut current = original_path.clone();
+    let mut current = original_path;
     while let Ok(target) = std::fs::read_link(&current) {
         let next = if target.is_absolute() {
             target

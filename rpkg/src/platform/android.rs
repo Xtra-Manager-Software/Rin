@@ -50,11 +50,11 @@ pub extern "system" fn Java_com_rin_rpkg_RpkgLib_execute<'local>(
                 Ok(_) => "Sync completed successfully.".to_string(),
                 Err(e) => format!("Failed to sync: {}", e),
             },
-            "install" => match pm.install(&[args_str.clone()], false) {
+            "install" => match pm.install(std::slice::from_ref(&args_str), false) {
                 Ok(_) => format!("Package '{}' installed successfully.", args_str),
                 Err(e) => format!("Failed to install '{}': {}", args_str, e),
             },
-            "remove" => match pm.remove(&[args_str.clone()]) {
+            "remove" => match pm.remove(std::slice::from_ref(&args_str)) {
                 Ok(_) => format!("Package '{}' removed successfully.", args_str),
                 Err(e) => format!("Failed to remove '{}': {}", args_str, e),
             },

@@ -50,8 +50,7 @@ impl PackageManager {
 
     pub(crate) fn save_database(&self) -> anyhow::Result<()> {
         let json = serde_json::to_string_pretty(&self.installed)?;
-        let mut tmp_path = self.db_path.clone();
-        tmp_path.set_extension("tmp");
+        let tmp_path = self.db_path.with_extension("tmp");
 
         let mut file = fs::File::create(&tmp_path)?;
         file.write_all(json.as_bytes())?;

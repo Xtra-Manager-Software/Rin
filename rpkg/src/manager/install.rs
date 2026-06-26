@@ -177,17 +177,18 @@ impl PackageManager {
             let cursor = std::io::Cursor::new(buffer);
             let installed_files = extract_deb(cursor, &self.prefix)?;
 
+            let is_explicit = package_names.contains(&pkg.name);
             let installed_pkg = InstalledPackage {
-                info: pkg.clone(),
+                info: pkg,
                 files: installed_files,
                 install_time: std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)?
                     .as_secs(),
-                explicit: package_names.contains(&pkg.name),
+                explicit: is_explicit,
                 required_by: vec![],
             };
 
-            self.installed.insert(pkg.name.clone(), installed_pkg);
+            self.installed.insert(installed_pkg.info.name.clone(), installed_pkg);
             self.save_database()?;
             println!("DONE");
         }
